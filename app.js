@@ -24,7 +24,7 @@ async function processFileHandle(fileHandle) {
             processDxf(file.name, dxf, null, null, event.target.result);
         } catch (error) {
             console.error("Error parsing DXF from Launch:", error);
-            alert("Error al abrir el archivo desde el sistema.");
+            showAlert("Error al abrir el archivo desde el sistema.");
         }
     };
     reader.readAsText(file);
@@ -232,6 +232,20 @@ const btnMeasure = document.getElementById('btn-measure');
 const btnCloseLayers = document.getElementById('close-layers');
 const btnClosePlans = document.getElementById('close-plans');
 
+const modalAlert = document.getElementById('custom-alert');
+const alertMsg = document.getElementById('alert-message');
+const btnAlertOk = document.getElementById('alert-ok');
+
+// Custom Alert Replacement
+function showAlert(message) {
+    alertMsg.innerText = message;
+    modalAlert.classList.remove('hidden');
+}
+
+btnAlertOk.addEventListener('click', () => {
+    modalAlert.classList.add('hidden');
+});
+
 // UI Interactions
 function closeAllPanels() {
     panelLayers.classList.add('hidden');
@@ -274,7 +288,7 @@ btnMeasure.addEventListener('click', () => {
     } else {
         closeAllPanels();
         map.getContainer().style.cursor = 'crosshair';
-        alert("Modo Medición: Toca puntos en el mapa para medir distancias.");
+        showAlert("Modo Medición: Toca puntos en el mapa para medir distancias.");
     }
 });
 
@@ -326,7 +340,7 @@ dxfUpload.addEventListener('change', (e) => {
                 processDxf(file.name, dxf, null, null, event.target.result);
             } catch (error) {
                 console.error("Error parsing DXF:", error);
-                alert("Ocurrió un error al procesar el archivo DXF.");
+                showAlert("Ocurrió un error al procesar el archivo DXF.");
             } finally {
                 loadingOverlay.classList.add('hidden');
                 dxfUpload.value = ''; 
@@ -403,7 +417,7 @@ function performSearch() {
             container.classList.remove('expanded');
         }
     } else {
-        alert("No se encontraron textos que coincidan con la búsqueda: " + term);
+        showAlert("No se encontraron textos que coincidan con la búsqueda: " + term);
         // Put class back if zoomed out
         if (map.getZoom() < 17) document.body.classList.add('hide-dxf-texts');
     }
@@ -620,7 +634,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         
         renderPlanAndLayersMap();
     } else {
-        if (!existingId) alert("No se encontraron entidades compatibles en el plano.");
+        if (!existingId) showAlert("No se encontraron entidades compatibles en el plano.");
         group.remove();
     }
 }
@@ -809,7 +823,7 @@ let watchId = null;
 
 btnGps.addEventListener('click', () => {
     if (!navigator.geolocation) {
-        alert("Tu navegador no soporta geolocalización.");
+        showAlert("Tu navegador no soporta geolocalización.");
         return;
     }
 
@@ -845,7 +859,7 @@ btnGps.addEventListener('click', () => {
         },
         (error) => {
             console.error(error);
-            alert("No se pudo obtener tu ubicación GPS.");
+            showAlert("No se pudo obtener tu ubicación GPS.");
             btnGps.classList.remove('active');
             if(watchId) navigator.geolocation.clearWatch(watchId);
             watchId = null;
