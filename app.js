@@ -398,6 +398,10 @@ function performSearch() {
 
     if (found) {
         map.fitBounds(matchBounds, { padding: [50, 50], maxZoom: 22 });
+        // Collapse search after finding results on mobile
+        if (window.innerWidth <= 600) {
+            container.classList.remove('expanded');
+        }
     } else {
         alert("No se encontraron textos que coincidan con la búsqueda: " + term);
         // Put class back if zoomed out
@@ -654,7 +658,12 @@ function renderPlanAndLayersMap() {
             const lData = plan.layersData[layerName];
             
             if(!activeLayersRegistry[layerName]) {
-                activeLayersRegistry[layerName] = { color: lData.color, visible: lData.visible, featureCount: 0 };
+                activeLayersRegistry[layerName] = { 
+                    color: lData.color, 
+                    customColor: lData.customColor, // FIX: Pass saved customColor to global registry
+                    visible: lData.visible, 
+                    featureCount: 0 
+                };
             }
             activeLayersRegistry[layerName].featureCount += lData.features.length;
 
