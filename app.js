@@ -3,6 +3,33 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
 }
 
+// 1.1 Handle files opened from the system (Open with...)
+if ('launchQueue' in window) {
+    launchQueue.setConsumer((launchParams) => {
+        if (launchParams.files && launchParams.files.length > 0) {
+            for (const fileHandle of launchParams.files) {
+                processFileHandle(fileHandle);
+            }
+        }
+    });
+}
+
+async function processFileHandle(fileHandle) {
+    const file = await fileHandle.getFile();
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const parser = new window.DxfParser();
+            const dxf = parser.parseSync(event.target.result);
+            processDxf(file.name, dxf, null, null, event.target.result);
+        } catch (error) {
+            console.error("Error parsing DXF from Launch:", error);
+            alert("Error al abrir el archivo desde el sistema.");
+        }
+    };
+    reader.readAsText(file);
+}
+
 // 1. Definition of CRS WGS84 UTM Zone 19S (EPSG:32719)
 proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_defs");
 
