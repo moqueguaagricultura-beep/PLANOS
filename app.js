@@ -1,0 +1,814 @@
+// 1. Service Worker Registration for PWA
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+}
+
+// 1. Definition of CRS WGS84 UTM Zone 19S (EPSG:32719)
+proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_defs");
+
+// 2. Initialize Map & Basemaps (Centered on Moquegua, Peru)
+// Set maxZoom astronomically high so users can zoom deeply into small lots
+const map = L.map('map', {zoomControl: false, maxZoom: 26}).setView([-17.195, -70.936], 9);
+map.attributionControl.setPrefix('EDWIN DIAZ CAMACHO');
+L.control.zoom({ position: 'topleft' }).addTo(map);
+
+// Semantic Zooming: Hide text annotations if map is zoomed out too far to prevent clutter
+map.on('zoomend', function() {
+    if (map.getZoom() < 17) {
+        document.body.classList.add('hide-dxf-texts');
+    } else {
+        document.body.classList.remove('hide-dxf-texts');
+    }
+});
+if (map.getZoom() < 17) document.body.classList.add('hide-dxf-texts');
+
+const basemaps = {
+    light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO',
+        maxZoom: 26, maxNativeZoom: 18
+    }),
+    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        // In rural areas, Esri lacks zoom 18+ and returns a gray picture saying "Map Data Not Available" (HTTP 200)
+        // Capping maxNativeZoom to 17 stops Leaflet from asking for those gray pictures and stretches the last good photo instead.
+        maxZoom: 26, maxNativeZoom: 17 
+    })
+};
+let currentBasemap = 'light';
+basemaps[currentBasemap].addTo(map);
+
+// AutoCAD Extended Color mapping (Standard 255 ACI Palette)
+const ACI_COLORS = [
+    "#000000", "#FF0000", "#FFFF00", "#00FF00", "#00FFFF", "#0000FF", "#FF00FF", "#FFFFFF", "#808080", "#C0C0C0", 
+    "#FF0000", "#FF7F7F", "#A50000", "#A55252", "#7F0000", "#7F3F3F", "#4C0000", "#4C2626", "#260000", "#261313",
+    "#FF3F00", "#FF9F7F", "#A52900", "#A56752", "#7F1F00", "#7F4F3F", "#4C1300", "#4C2F26", "#260900", "#261713",
+    "#FF7F00", "#FFBF7F", "#A55200", "#A57C52", "#7F3F00", "#7F5F3F", "#4C2600", "#4C3926", "#261300", "#261C13",
+    "#FFBF00", "#FFDF7F", "#A57C00", "#A59152", "#7F5F00", "#7F6F3F", "#4C3900", "#4C4226", "#261C00", "#262113",
+    "#FFFF00", "#FFFF7F", "#A5A500", "#A5A552", "#7F7F00", "#7F7F3F", "#4C4C00", "#4C4C26", "#262600", "#262613",
+    "#BFFF00", "#DFFF7F", "#7CA500", "#91A552", "#5F7F00", "#6F7F3F", "#394C00", "#424C26", "#1C2600", "#212613",
+    "#7FFF00", "#BFFF7F", "#52A500", "#7CA552", "#3F7F00", "#5F7F3F", "#264C00", "#394C26", "#132600", "#1C2613",
+    "#3FFF00", "#9FFF7F", "#29A500", "#67A552", "#1F7F00", "#4F7F3F", "#134C00", "#2F4C26", "#092600", "#172613",
+    "#00FF00", "#7FFF7F", "#00A500", "#52A552", "#007F00", "#3F7F3F", "#004C00", "#264C26", "#002600", "#132613",
+    "#00FF3F", "#7FFF9F", "#00A529", "#52A567", "#007F1F", "#3F7F4F", "#004C13", "#264C2F", "#002609", "#132617",
+    "#00FF7F", "#7FFFBF", "#00A552", "#52A57C", "#007F3F", "#3F7F5F", "#004C26", "#264C39", "#002613", "#13261C",
+    "#00FFBF", "#7FFFDF", "#00A57C", "#52A591", "#007F5F", "#3F7F6F", "#004C39", "#264C42", "#00261C", "#132621",
+    "#00FFFF", "#7FFFFF", "#00A5A5", "#52A5A5", "#007F7F", "#3F7F7F", "#004C4C", "#264C4C", "#002626", "#132626",
+    "#00BFFF", "#7FDFFF", "#007CA5", "#5291A5", "#005F7F", "#3F6F7F", "#00394C", "#26424C", "#001C26", "#132126",
+    "#007FFF", "#7FBFFF", "#0052A5", "#527CA5", "#003F7F", "#3F5F7F", "#00264C", "#26394C", "#001326", "#131C26",
+    "#003FFF", "#7F9FFF", "#0029A5", "#5267A5", "#001F7F", "#3F4F7F", "#00134C", "#262F4C", "#000926", "#131726",
+    "#0000FF", "#7F7FFF", "#0000A5", "#5252A5", "#00007F", "#3F3F7F", "#00004C", "#26264C", "#000026", "#131326",
+    "#3F00FF", "#9F7FFF", "#2900A5", "#6752A5", "#1F007F", "#4F3F7F", "#13004C", "#2F264C", "#090026", "#171326",
+    "#7F00FF", "#BF7FFF", "#5200A5", "#7C52A5", "#3F007F", "#5F3F7F", "#26004C", "#39264C", "#130026", "#1C1326",
+    "#BF00FF", "#DF7FFF", "#7C00A5", "#9152A5", "#5F007F", "#6F3F7F", "#39004C", "#42264C", "#1C0026", "#211326",
+    "#FF00FF", "#FF7FFF", "#A500A5", "#A552A5", "#7F007F", "#7F3F7F", "#4C004C", "#4C264C", "#260026", "#261326",
+    "#FF00BF", "#FF7FDF", "#A5007C", "#A55291", "#7F005F", "#7F3F6F", "#4C0039", "#4C2642", "#26001C", "#261321",
+    "#FF007F", "#FF7FBF", "#A50052", "#A5527C", "#7F003F", "#7F3F5F", "#4C0026", "#4C2639", "#260013", "#26131C",
+    "#FF003F", "#FF7F9F", "#A50029", "#A55267", "#7F001F", "#7F3F4F", "#4C0013", "#4C262F", "#260009", "#261317",
+    "#333333", "#505050", "#696969", "#828282", "#9C9C9C", "#B5B5B5", "#CECECE", "#E7E7E7", "#FFFFFF"
+];
+
+function getEntityColor(colorNumber) {
+    // If absolutely no color is passed (null, undefined, 256 "ByLayer", 0 "ByBlock"), use standard ACI 7 (White/Black)
+    let c = colorNumber;
+    if (c === undefined || c === null || c === 256 || c === 0) c = 7;
+
+    // Handle string colors from newer DXF specs (like "128" or hexadecimal "#00ff00") that might bypass ACI
+    if (typeof c === 'string') {
+        if (c.startsWith('#')) return c;
+        c = parseInt(c, 10);
+    }
+    
+    // Safety fallback
+    if (isNaN(c) || c < 0 || c > 255) c = 7;
+
+    let hex = ACI_COLORS[c] || '#333333';
+    
+    // Auto adjust white/black contrast based on basemap
+    if (c === 7) {
+        hex = currentBasemap === 'satellite' ? '#FFFFFF' : '#000000';
+    }
+    return hex;
+}
+
+// --- IndexedDB Configuration ---
+const DB_NAME = "PlanosDXF_DB";
+const DB_VERSION = 1;
+const STORE_NAME = "plans";
+
+function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME, { keyPath: "id" });
+            }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+    });
+}
+
+async function savePlanToDB(planData) {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    // We only save raw data and basic config, not Leaflet objects
+    const dataToSave = {
+        id: planData.id,
+        name: planData.name,
+        rawDxf: planData.rawDxf,
+        visible: planData.visible,
+        layersConfig: {} // Store color/visibility per layer
+    };
+    Object.keys(planData.layersData).forEach(layerName => {
+        dataToSave.layersConfig[layerName] = {
+            customColor: planData.layersData[layerName].customColor,
+            visible: planData.layersData[layerName].visible
+        };
+    });
+    store.put(dataToSave);
+}
+
+async function deletePlanFromDB(planId) {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    store.delete(planId);
+}
+
+async function updatePlanConfigInDB(planId, layerName, config) {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(planId);
+    request.onsuccess = () => {
+        const data = request.result;
+        if (data) {
+            if (!data.layersConfig[layerName]) data.layersConfig[layerName] = {};
+            Object.assign(data.layersConfig[layerName], config);
+            store.put(data);
+        }
+    };
+}
+
+async function loadPlansFromDB() {
+    const db = await initDB();
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.getAll();
+    request.onsuccess = () => {
+        const savedPlans = request.result;
+        if (savedPlans && savedPlans.length > 0) {
+            loadingOverlay.classList.remove('hidden');
+            const parser = new window.DxfParser();
+            savedPlans.forEach(saved => {
+                try {
+                    const dxf = parser.parseSync(saved.rawDxf);
+                    processDxf(saved.name, dxf, saved.id, saved);
+                } catch (e) {
+                    console.error("Error loading saved plan:", saved.name, e);
+                }
+            });
+            loadingOverlay.classList.add('hidden');
+        }
+    };
+}
+
+// State Management
+let loadedPlans = []; // Array of plans and their layers
+let activeLayersRegistry = {}; 
+
+// --- Measurement Tool State ---
+let isMeasuring = false;
+let measurePoints = [];
+let measureLayer = L.layerGroup().addTo(map);
+let measureLine = null;
+let measureMarkers = [];
+// 3. UI Elements
+const dxfUpload = document.getElementById('dxf-upload');
+const panelLayers = document.getElementById('layer-panel');
+const panelPlans = document.getElementById('plan-panel');
+const layerList = document.getElementById('layer-list');
+const planList = document.getElementById('plan-list');
+const loadingOverlay = document.getElementById('loading');
+
+const searchInput = document.getElementById('search-input');
+const btnSearch = document.getElementById('btn-search');
+
+const btnLayers = document.getElementById('btn-layers');
+const btnPlans = document.getElementById('btn-plans');
+const btnBasemap = document.getElementById('btn-basemap');
+const btnGps = document.getElementById('btn-gps');
+const btnMeasure = document.getElementById('btn-measure');
+
+const btnCloseLayers = document.getElementById('close-layers');
+const btnClosePlans = document.getElementById('close-plans');
+
+// UI Interactions
+function closeAllPanels() {
+    panelLayers.classList.add('hidden');
+    panelPlans.classList.add('hidden');
+    btnLayers.classList.remove('active');
+    btnPlans.classList.remove('active');
+}
+
+btnLayers.addEventListener('click', () => {
+    let isActive = !panelLayers.classList.contains('hidden');
+    closeAllPanels();
+    if (!isActive) { panelLayers.classList.remove('hidden'); btnLayers.classList.add('active'); }
+});
+
+btnPlans.addEventListener('click', () => {
+    let isActive = !panelPlans.classList.contains('hidden');
+    closeAllPanels();
+    if (!isActive) { panelPlans.classList.remove('hidden'); btnPlans.classList.add('active'); }
+});
+
+btnCloseLayers.addEventListener('click', closeAllPanels);
+btnClosePlans.addEventListener('click', closeAllPanels);
+
+btnBasemap.addEventListener('click', () => {
+    map.removeLayer(basemaps[currentBasemap]);
+    currentBasemap = currentBasemap === 'light' ? 'satellite' : 'light';
+    basemaps[currentBasemap].addTo(map);
+    btnBasemap.classList.toggle('active', currentBasemap === 'satellite');
+    
+    // Refresh texts styling depending on new map style
+    refreshAllPlansStyling();
+});
+
+// Measurement Tool Logic
+btnMeasure.addEventListener('click', () => {
+    isMeasuring = !isMeasuring;
+    btnMeasure.classList.toggle('active', isMeasuring);
+    if (!isMeasuring) {
+        clearMeasurement();
+    } else {
+        closeAllPanels();
+        map.getContainer().style.cursor = 'crosshair';
+        alert("Modo Medición: Toca puntos en el mapa para medir distancias.");
+    }
+});
+
+function clearMeasurement() {
+    measureLayer.clearLayers();
+    measurePoints = [];
+    measureLine = null;
+    measureMarkers = [];
+    map.getContainer().style.cursor = '';
+}
+
+map.on('click', (e) => {
+    if (!isMeasuring) return;
+
+    const latlng = e.latlng;
+    measurePoints.push(latlng);
+    
+    const marker = L.circleMarker(latlng, { radius: 5, color: '#ef4444', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayer);
+    measureMarkers.push(marker);
+
+    if (measurePoints.length > 1) {
+        if (measureLine) measureLayer.removeLayer(measureLine);
+        measureLine = L.polyline(measurePoints, { color: '#ef4444', weight: 3, dashArray: '5, 10' }).addTo(measureLayer);
+        
+        // Calculate cumulative distance
+        let totalDist = 0;
+        for (let i = 0; i < measurePoints.length - 1; i++) {
+            totalDist += measurePoints[i].distanceTo(measurePoints[i+1]);
+        }
+        
+        marker.bindTooltip(`${totalDist.toFixed(2)} m`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
+    } else {
+        marker.bindTooltip(`Inicio`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
+    }
+});
+
+// 4. File Upload and Parsing
+dxfUpload.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    loadingOverlay.classList.remove('hidden');
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        setTimeout(() => {
+            try {
+                const parser = new window.DxfParser();
+                const dxf = parser.parseSync(event.target.result);
+                processDxf(file.name, dxf, null, null, event.target.result);
+            } catch (error) {
+                console.error("Error parsing DXF:", error);
+                alert("Ocurrió un error al procesar el archivo DXF.");
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                dxfUpload.value = ''; 
+            }
+        }, 50);
+    };
+    reader.readAsText(file);
+});
+
+// Search Logic
+function performSearch() {
+    const term = searchInput.value.trim().toLowerCase();
+    const container = searchInput.parentElement;
+
+    // Mobile Toggle Logic: if on mobile, clicking the button triggers expansion/collapse
+    if (window.innerWidth <= 600) {
+        if (!container.classList.contains('expanded')) {
+            container.classList.add('expanded');
+            searchInput.focus();
+            return; // Just expand on first click
+        }
+        // If already expanded but empty, collapse it
+        if (!term) {
+            container.classList.remove('expanded');
+            return;
+        }
+    }
+
+    if (!term) return;
+
+    let matchBounds = L.latLngBounds();
+    let found = false;
+
+    // Remove zoom limitation class temporarily so elements render and we can pick them
+    document.body.classList.remove('hide-dxf-texts');
+
+    loadedPlans.forEach(plan => {
+        if (!plan.visible) return;
+        Object.keys(plan.layersData).forEach(layerName => {
+            if (!activeLayersRegistry[layerName] || !activeLayersRegistry[layerName].visible) return;
+            const lData = plan.layersData[layerName];
+            lData.features.forEach(feat => {
+                if (feat._isText && feat._textOptions.text.toLowerCase().includes(term)) {
+                    matchBounds.extend(feat.getLatLng());
+                    found = true;
+                    
+                    // Highlight effect visually
+                    const el = feat.getElement();
+                    if (el) {
+                        const originalColor = el.style.color;
+                        el.style.transition = "all 0.3s";
+                        el.style.transform += " scale(1.5)";
+                        el.style.color = "#ef4444"; // Red highlight
+                        el.style.textShadow = "0 0 8px yellow";
+                        el.style.zIndex = 1000;
+                        setTimeout(() => {
+                            if (el) {
+                                el.style.transform = el.style.transform.replace(" scale(1.5)", "");
+                                el.style.color = originalColor;
+                                el.style.textShadow = "";
+                                el.style.zIndex = "";
+                            }
+                        }, 4000);
+                    }
+                }
+            });
+        });
+    });
+
+    if (found) {
+        map.fitBounds(matchBounds, { padding: [50, 50], maxZoom: 22 });
+    } else {
+        alert("No se encontraron textos que coincidan con la búsqueda: " + term);
+        // Put class back if zoomed out
+        if (map.getZoom() < 17) document.body.classList.add('hide-dxf-texts');
+    }
+}
+
+btnSearch.addEventListener('click', performSearch);
+searchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') performSearch();
+});
+
+// Geometric Helpers
+function calculatePlanarArea(vertices) {
+    if (!vertices || vertices.length < 3) return 0;
+    let area = 0;
+    for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+        area += (vertices[j].x + vertices[i].x) * (vertices[j].y - vertices[i].y);
+    }
+    return Math.abs(area / 2);
+}
+
+// 5. Plan and Layer Management
+function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxfString = null) {
+    const planId = existingId || 'plan_' + Date.now();
+    const group = L.layerGroup().addTo(map);
+    
+    if (savedConfig && !savedConfig.visible) group.remove();
+
+    let bounds = L.latLngBounds();
+    let hasGeoms = false;
+    let layersData = {}; // Internal registry for this specific plan
+
+    const tableLayers = dxf.tables?.layer?.layers || {};
+
+    const convertPoint = (x, y) => {
+        const wgs84 = proj4("EPSG:32719", "EPSG:4326", [x, y]); 
+        const latlng = [wgs84[1], wgs84[0]];
+        bounds.extend(latlng);
+        hasGeoms = true;
+        return latlng;
+    };
+
+    dxf.entities.forEach(entity => {
+        const layerName = entity.layer || "Default";
+        
+        // --- 1. RESOLVE LAYER DEFAULT COLOR ---
+        let tableLayerColorNum = 7; // Default White/Black Contrast
+        if (tableLayers && tableLayers[layerName]) {
+            const lData = tableLayers[layerName];
+            // Check standard ACI index properties
+            if (lData.colorNumber !== undefined) tableLayerColorNum = lData.colorNumber;
+            else if (lData.colorIndex !== undefined) tableLayerColorNum = lData.colorIndex;
+            else if (lData.color !== undefined) tableLayerColorNum = lData.color;
+            // Support DXF TrueColor in Layer (24-bit RGB)
+            else if (lData.trueColor) tableLayerColorNum = `#${lData.trueColor.toString(16).padStart(6, '0')}`;
+        }
+        
+        // --- 2. RESOLVE ENTITY OVERRIDE COLOR ---
+        let entityColorNum = entity.colorNumber;
+        if (entityColorNum === undefined) entityColorNum = entity.colorIndex; // Support missing colorIndex variant!
+        if (entityColorNum === undefined) entityColorNum = entity.color;
+
+        // Check for direct TrueColor (RGB) string override on the entity itself
+        if (entity.trueColor) {
+            entityColorNum = `#${entity.trueColor.toString(16).padStart(6, '0')}`;
+        }
+
+        // --- 3. APPLY LAYER INHERITANCE ---
+        // Apply Layer Fallback. "ByLayer" (256) or unassigned properties default to the Layer table object definition
+        if (entityColorNum === 256 || entityColorNum === undefined || entityColorNum === null || entityColorNum === 0) {
+            entityColorNum = tableLayerColorNum;
+        }
+
+        if (!layersData[layerName]) {
+            const lConfig = savedConfig?.layersConfig?.[layerName];
+            layersData[layerName] = { 
+                color: getEntityColor(tableLayerColorNum), 
+                customColor: lConfig?.customColor || null,
+                visible: lConfig !== undefined ? lConfig.visible : true, 
+                features: [] 
+            };
+        }
+
+        const featureColor = getEntityColor(entityColorNum);
+        let geom = null;
+        let isText = false;
+        let isPolygon = false;
+
+        if (entity.type === 'LINE') {
+            const p1 = convertPoint(entity.vertices[0].x, entity.vertices[0].y);
+            const p2 = convertPoint(entity.vertices[1].x, entity.vertices[1].y);
+            geom = L.polyline([p1, p2]);
+        } 
+        else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+            const points = entity.vertices.map(v => convertPoint(v.x, v.y));
+            // Always treat polylines as lines to avoid the "grey blob" effect on maps
+            let isClosedPoly = entity.shape || entity.closed;
+            
+            // Check implicitly closed
+            if (!isClosedPoly && entity.vertices.length > 2) {
+                const first = entity.vertices[0];
+                const last = entity.vertices[entity.vertices.length - 1];
+                if (Math.abs(first.x - last.x) < 0.001 && Math.abs(first.y - last.y) < 0.001) {
+                    isClosedPoly = true;
+                }
+            }
+
+            if (isClosedPoly) {
+                isPolygon = true;
+                geom = L.polygon(points, { fillOpacity: 0 }); // Use L.polygon for area shapes
+            } else {
+                geom = L.polyline(points);
+            }
+            
+            if (isPolygon) {
+                const areaM2 = calculatePlanarArea(entity.vertices);
+                if (areaM2 > 0) {
+                    const areaHa = areaM2 / 10000;
+                    geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Polígono</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', {minimumFractionDigits: 4, maximumFractionDigits: 4})} ha</span></div>`);
+                    
+                    // Highlight on selection
+                    geom.on('popupopen', function() {
+                        this.setStyle({ fillOpacity: 0.3 });
+                    });
+                    geom.on('popupclose', function() {
+                        this.setStyle({ fillOpacity: 0 });
+                    });
+                }
+            }
+        } 
+        else if (entity.type === 'CIRCLE') {
+            const center = convertPoint(entity.center.x, entity.center.y);
+            geom = L.circle(center, { radius: entity.radius, fillOpacity: 0 }); 
+            isPolygon = true;
+
+            const areaM2 = Math.PI * Math.pow(entity.radius, 2);
+            const areaHa = areaM2 / 10000;
+            geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Círculo</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', {minimumFractionDigits: 4, maximumFractionDigits: 4})} ha</span></div>`);
+            
+            // Highlight on selection
+            geom.on('popupopen', function() {
+                this.setStyle({ fillOpacity: 0.3 });
+            });
+            geom.on('popupclose', function() {
+                this.setStyle({ fillOpacity: 0 });
+            });
+        }
+        else if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
+            const ptX = entity.startPoint?.x ?? entity.position?.x ?? entity.insertionPoint?.x ?? entity.x;
+            const ptY = entity.startPoint?.y ?? entity.position?.y ?? entity.insertionPoint?.y ?? entity.y;
+            
+            if (ptX !== undefined && ptY !== undefined && !isNaN(ptX)) {
+                const pt = convertPoint(ptX, ptY);
+                // Extract string robustly - MTEXT uses .text, text uses .string, some DXF specs use .value
+                let textStr = entity.text || entity.string || entity.value || "";
+
+                if (textStr) {
+                    // AutoCAD MTEXT Regex cleaner - eliminates fonts, color codes (\C), text heights (\H), formatting overrides
+                    textStr = textStr.replace(/\\[A-Za-z0-9~\-]+(;|\b)/g, '')
+                                     .replace(/\\P/g, '<br>')
+                                     .replace(/[{}]/g, '')
+                                     .trim();
+
+                    if (textStr !== '') {
+                        isText = true;
+                        const textHeight = entity.textHeight || 12;
+                        const rotation = entity.rotation || 0;
+                        
+                        geom = L.marker(pt, {
+                            icon: L.divIcon({
+                                className: `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`,
+                                html: `<span style="color: ${featureColor}; font-family: sans-serif; font-size: ${Math.max(10, textHeight * 2.5)}px; transform: rotate(${-rotation}deg); display: inline-block; transform-origin: left center;">${textStr}</span>`,
+                                iconSize: null
+                            })
+                        });
+                        geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation };
+                    }
+                }
+            }
+        }
+
+        if (geom) {
+            geom._isText = isText;
+            geom._isPolygon = isPolygon;
+            geom._featureColor = featureColor;
+            layersData[layerName].features.push(geom);
+        }
+    });
+
+    if (hasGeoms) {
+        const newPlan = {
+            id: planId,
+            name: fileName,
+            layerGroup: group,
+            bounds: bounds,
+            layersData: layersData,
+            visible: savedConfig ? savedConfig.visible : true,
+            rawDxf: rawDxfString || savedConfig?.rawDxf
+        };
+        loadedPlans.push(newPlan);
+        
+        if (!existingId) {
+            savePlanToDB(newPlan);
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+        
+        renderPlanAndLayersMap();
+    } else {
+        if (!existingId) alert("No se encontraron entidades compatibles en el plano.");
+        group.remove();
+    }
+}
+
+function refreshAllPlansStyling() {
+    loadedPlans.forEach(plan => {
+        Object.keys(plan.layersData).forEach(layerName => {
+            const lData = plan.layersData[layerName];
+            lData.features.forEach(feat => {
+                if (feat._isText) {
+                    const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
+                    const customCol = lData.customColor || getEntityColor(feat._textOptions.colorNumber);
+                    feat.setIcon(L.divIcon({
+                        className: cName,
+                        html: `<span style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; font-family: sans-serif; font-size: ${Math.max(10, feat._textOptions.textHeight * 2.5)}px; transform: rotate(${-feat._textOptions.rotation}deg); display: inline-block; transform-origin: left center;">${feat._textOptions.text}</span>`,
+                        iconSize: null
+                    }));
+                } else if(feat.setStyle) {
+                    const customCol = lData.customColor || feat._featureColor;
+                    feat.setStyle({ color: customCol });
+                }
+            });
+        });
+    });
+}
+
+function renderPlanAndLayersMap() {
+    loadedPlans.forEach(plan => plan.layerGroup.clearLayers());
+    
+    // Reset feature counts but retain persistence for custom colors and visibility toggles
+    Object.keys(activeLayersRegistry).forEach(k => { activeLayersRegistry[k].featureCount = 0; });
+
+    loadedPlans.forEach(plan => {
+        Object.keys(plan.layersData).forEach(layerName => {
+            const lData = plan.layersData[layerName];
+            
+            if(!activeLayersRegistry[layerName]) {
+                activeLayersRegistry[layerName] = { color: lData.color, visible: lData.visible, featureCount: 0 };
+            }
+            activeLayersRegistry[layerName].featureCount += lData.features.length;
+
+            if (activeLayersRegistry[layerName].visible) {
+                lData.features.forEach(feat => {
+                    if (feat._isText) {
+                        const customCol = activeLayersRegistry[layerName].customColor || getEntityColor(feat._textOptions.colorNumber);
+                        const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
+                        feat.setIcon(L.divIcon({
+                            className: cName,
+                            html: `<span style="color: ${customCol}; font-family: sans-serif; font-size: ${Math.max(10, feat._textOptions.textHeight * 2.5)}px; transform: rotate(${-feat._textOptions.rotation}deg); display: inline-block; transform-origin: left center;">${feat._textOptions.text}</span>`,
+                            iconSize: null
+                        }));
+                    } else if(feat.setStyle) {
+                        const customCol = activeLayersRegistry[layerName].customColor || feat._featureColor;
+                        // Draw clean solid boundary lines (no inner fill)
+                        feat.setStyle({ 
+                            color: customCol, 
+                            weight: 2, 
+                            fillOpacity: 0
+                        });
+                    }
+                    plan.layerGroup.addLayer(feat);
+                });
+            }
+        });
+    });
+
+    buildPlanPanel();
+    buildLayerPanel();
+}
+
+function buildPlanPanel() {
+    planList.innerHTML = '';
+    if (loadedPlans.length === 0) {
+        planList.innerHTML = '<p class="empty-state">No hay planos cargados</p>';
+        return;
+    }
+
+    loadedPlans.forEach(plan => {
+        const div = document.createElement('div');
+        div.className = 'plan-item';
+        div.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; flex: 1; overflow: hidden;">
+                <input type="checkbox" class="plan-visible-toggle" ${plan.visible ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                <span class="plan-name" title="${plan.name}" style="cursor: pointer; flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">📄 ${plan.name}</span>
+            </div>
+            <button class="btn-delete" title="Borrar Plano">Eliminar</button>
+        `;
+
+        div.querySelector('.btn-delete').addEventListener('click', () => {
+            plan.layerGroup.remove();
+            deletePlanFromDB(plan.id);
+            loadedPlans = loadedPlans.filter(p => p.id !== plan.id);
+            renderPlanAndLayersMap(); 
+        });
+
+        div.querySelector('.plan-visible-toggle').addEventListener('change', (e) => {
+            plan.visible = e.target.checked;
+            updatePlanConfigInDB(plan.id, null, { visible: plan.visible });
+            if (plan.visible) {
+                plan.layerGroup.addTo(map);
+            } else {
+                plan.layerGroup.remove(); 
+            }
+        });
+
+        div.querySelector('.plan-name').addEventListener('click', () => {
+            if(plan.bounds.isValid()) map.fitBounds(plan.bounds, { padding: [50,50] });
+            closeAllPanels();
+        });
+
+        planList.appendChild(div);
+    });
+}
+
+function buildLayerPanel() {
+    layerList.innerHTML = '';
+    const layerNames = Object.keys(activeLayersRegistry).sort();
+    
+    if (layerNames.length === 0) {
+        layerList.innerHTML = '<p class="empty-state">No hay capas cargadas</p>';
+        return;
+    }
+
+    layerNames.forEach(layerName => {
+        const layerData = activeLayersRegistry[layerName];
+        const div = document.createElement('div');
+        div.className = 'layer-item';
+        // Set the input display to the custom color or default color
+        const displayColor = layerData.customColor || layerData.color;
+        
+        div.innerHTML = `
+            <div class="layer-info">
+                <input type="color" class="layer-color" value="${displayColor}" title="Forzar color unificado">
+                <span class="layer-name">${layerName} (${layerData.featureCount})</span>
+            </div>
+            <label class="switch">
+                <input type="checkbox" class="layer-visible" ${layerData.visible ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        `;
+
+        const colorInput = div.querySelector('.layer-color');
+        colorInput.addEventListener('input', (e) => {
+            const newColor = e.target.value;
+            // Update the global active visual registry
+            activeLayersRegistry[layerName].customColor = newColor;
+            
+            // Push changes down to the individual plan data source so text/lines reflect it
+            loadedPlans.forEach(plan => {
+                if(plan.layersData[layerName]) {
+                    plan.layersData[layerName].customColor = newColor;
+                    updatePlanConfigInDB(plan.id, layerName, { customColor: newColor });
+                }
+            });
+            // Re-render everything with the new color overlay
+            renderPlanAndLayersMap();
+        });
+
+        const visibleInput = div.querySelector('.layer-visible');
+        visibleInput.addEventListener('change', (e) => {
+            const isVisible = e.target.checked;
+            activeLayersRegistry[layerName].visible = isVisible;
+            
+            loadedPlans.forEach(plan => {
+                if(plan.layersData[layerName]) {
+                    plan.layersData[layerName].visible = isVisible;
+                    updatePlanConfigInDB(plan.id, layerName, { visible: isVisible });
+                }
+            });
+            renderPlanAndLayersMap();
+        });
+
+        layerList.appendChild(div);
+    });
+}
+
+// 6. GPS Tracking
+let gpsMarker = null;
+let gpsCircle = null;
+let watchId = null;
+
+btnGps.addEventListener('click', () => {
+    if (!navigator.geolocation) {
+        alert("Tu navegador no soporta geolocalización.");
+        return;
+    }
+
+    if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        if(gpsMarker) map.removeLayer(gpsMarker);
+        if(gpsCircle) map.removeLayer(gpsCircle);
+        gpsMarker = null;
+        gpsCircle = null;
+        btnGps.classList.remove('active');
+        return;
+    }
+
+    btnGps.classList.add('active');
+
+    watchId = navigator.geolocation.watchPosition(
+        (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const acc = position.coords.accuracy;
+            const latlng = [lat, lng];
+
+            if (!gpsMarker) {
+                gpsCircle = L.circle(latlng, { radius: acc, color: "#3b82f6", weight: 1, fillOpacity: 0.15, interactive: false }).addTo(map);
+                gpsMarker = L.circleMarker(latlng, { radius: 7, fillColor: "#2563eb", color: "#ffffff", weight: 2, opacity: 1, fillOpacity: 1, interactive: false }).addTo(map);
+                map.setView(latlng, 18);
+            } else {
+                gpsMarker.setLatLng(latlng);
+                gpsCircle.setLatLng(latlng);
+                gpsCircle.setRadius(acc);
+            }
+        },
+        (error) => {
+            console.error(error);
+            alert("No se pudo obtener tu ubicación GPS.");
+            btnGps.classList.remove('active');
+            if(watchId) navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+    );
+});
+
+// Start DB processing
+loadPlansFromDB();
