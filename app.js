@@ -286,10 +286,7 @@ function clearMeasurement() {
     map.getContainer().style.cursor = '';
 }
 
-map.on('click', (e) => {
-    if (!isMeasuring) return;
-
-    const latlng = e.latlng;
+function addMeasurementPoint(latlng) {
     measurePoints.push(latlng);
     
     const marker = L.circleMarker(latlng, { radius: 5, color: '#ef4444', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayer);
@@ -299,16 +296,18 @@ map.on('click', (e) => {
         if (measureLine) measureLayer.removeLayer(measureLine);
         measureLine = L.polyline(measurePoints, { color: '#ef4444', weight: 3, dashArray: '5, 10' }).addTo(measureLayer);
         
-        // Calculate cumulative distance
         let totalDist = 0;
         for (let i = 0; i < measurePoints.length - 1; i++) {
             totalDist += measurePoints[i].distanceTo(measurePoints[i+1]);
         }
-        
         marker.bindTooltip(`${totalDist.toFixed(2)} m`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
     } else {
         marker.bindTooltip(`Inicio`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
     }
+}
+
+map.on('click', (e) => {
+    if (isMeasuring) addMeasurementPoint(e.latlng);
 });
 
 // 4. File Upload and Parsing
@@ -585,6 +584,15 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             geom._isText = isText;
             geom._isPolygon = isPolygon;
             geom._featureColor = featureColor;
+
+            // Prioritize measurement clicks when active
+            geom.on('click', (e) => {
+                if (isMeasuring) {
+                    L.DomEvent.stopPropagation(e);
+                    addMeasurementPoint(e.latlng);
+                }
+            });
+
             layersData[layerName].features.push(geom);
         }
     });
