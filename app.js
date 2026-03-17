@@ -613,6 +613,23 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 this.setStyle({ fillOpacity: 0 });
             });
         }
+        else if (entity.type === 'POINT') {
+            const ptX = entity.position?.x ?? entity.x;
+            const ptY = entity.position?.y ?? entity.y;
+
+            if (ptX !== undefined && ptY !== undefined && !isNaN(ptX)) {
+                const pt = convertPoint(ptX, ptY);
+                // Create a small circle marker for the point
+                geom = L.circleMarker(pt, {
+                    radius: 3,
+                    stroke: true,
+                    weight: 1,
+                    opacity: 1,
+                    fill: true,
+                    fillOpacity: 0.8
+                });
+            }
+        }
         else if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
             const ptX = entity.startPoint?.x ?? entity.position?.x ?? entity.insertionPoint?.x ?? entity.x;
             const ptY = entity.startPoint?.y ?? entity.position?.y ?? entity.insertionPoint?.y ?? entity.y;
@@ -701,6 +718,10 @@ function refreshAllPlansStyling() {
                         html: `<span style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; font-family: sans-serif; font-size: ${Math.max(10, feat._textOptions.textHeight * 2.5)}px; transform: rotate(${-feat._textOptions.rotation}deg); display: inline-block; transform-origin: left center;">${feat._textOptions.text}</span>`,
                         iconSize: null
                     }));
+                } else if (feat instanceof L.CircleMarker && !feat._isPolygon) {
+                    // For POINT entities (rendered as circleMarker but not the polygon radius Circle)
+                    const customCol = lData.customColor || feat._featureColor;
+                    feat.setStyle({ color: customCol, fillColor: customCol });
                 } else if (feat.setStyle) {
                     const customCol = lData.customColor || feat._featureColor;
                     feat.setStyle({ color: customCol });
@@ -749,6 +770,18 @@ function renderPlanAndLayersMap() {
                             fillOpacity: 0
                         });
                     }
+
+                    // Special handling for circle markers (points)
+                    if (feat instanceof L.CircleMarker && !feat._isPolygon) {
+                        const customCol = activeLayersRegistry[layerName].customColor || feat._featureColor;
+                        feat.setStyle({
+                            color: customCol,
+                            fillColor: customCol,
+                            weight: 1,
+                            fillOpacity: 0.8
+                        });
+                    }
+                    
                     plan.layerGroup.addLayer(feat);
                 });
             }
