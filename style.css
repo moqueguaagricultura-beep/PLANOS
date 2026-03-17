@@ -138,20 +138,20 @@ body, html {
     bottom: 30px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
     z-index: 1000;
 }
 
 /* FABs */
 .fab {
-    width: 56px;
-    height: 56px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background-color: var(--surface);
     border: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     cursor: pointer;
-    font-size: 1.5rem;
+    font-size: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -568,4 +568,44 @@ body.hide-dxf-texts .dxf-text {
 .modal-content button {
     width: 100%;
     justify-content: center;
+}
+
+/* Note Styles */
+.note-marker {
+    font-size: 1.5rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.note-popup p {
+    font-size: 0.95rem;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    word-break: break-word;
+    max-width: 200px;
+}
+
+#coords-display {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(4px);
+    padding: 6px 14px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--primary);
+    z-index: 1000;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    border: 1px solid var(--primary);
+    white-space: nowrap;
+    display: none; /* Hidden by default */
+}
+
+#coords-display.visible {
+    display: block;
 }

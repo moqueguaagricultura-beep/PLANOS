@@ -37,7 +37,6 @@ proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_de
 // Set maxZoom astronomically high so users can zoom deeply into small lots
 const map = L.map('map', {zoomControl: false, maxZoom: 26}).setView([-17.195, -70.936], 9);
 map.attributionControl.setPrefix('EDWIN DIAZ CAMACHO');
-L.control.zoom({ position: 'topleft' }).addTo(map);
 
 // Semantic Zooming: Hide text annotations if map is zoomed out too far to prevent clutter
 map.on('zoomend', function() {
@@ -59,6 +58,11 @@ const basemaps = {
         // In rural areas, Esri lacks zoom 18+ and returns a gray picture saying "Map Data Not Available" (HTTP 200)
         // Capping maxNativeZoom to 17 stops Leaflet from asking for those gray pictures and stretches the last good photo instead.
         maxZoom: 26, maxNativeZoom: 17 
+    }),
+    history2020: L.tileLayer('https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/29260/{z}/{y}/{x}', {
+        attribution: 'Esri Wayback (Dec 2020)',
+        maxZoom: 26, 
+        maxNativeZoom: 17
     })
 };
 let currentBasemap = 'light';
@@ -119,8 +123,9 @@ function getEntityColor(colorNumber) {
 
 // --- IndexedDB Configuration ---
 const DB_NAME = "PlanosDXF_DB";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Upgraded for notes
 const STORE_NAME = "plans";
+const NOTES_STORE = "notes";
 
 function initDB() {
     return new Promise((resolve, reject) => {
@@ -129,6 +134,9 @@ function initDB() {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 db.createObjectStore(STORE_NAME, { keyPath: "id" });
+            }
+            if (!db.objectStoreNames.contains(NOTES_STORE)) {
+                db.createObjectStore(NOTES_STORE, { keyPath: "id" });
             }
         };
         request.onsuccess = (e) => resolve(e.target.result);
@@ -226,7 +234,9 @@ const btnSearch = document.getElementById('btn-search');
 const btnLayers = document.getElementById('btn-layers');
 const btnPlans = document.getElementById('btn-plans');
 const btnBasemap = document.getElementById('btn-basemap');
+const btnBasemap2020 = document.getElementById('btn-basemap-2020');
 const btnGps = document.getElementById('btn-gps');
+const btnNote = document.getElementById('btn-note');
 const btnMeasure = document.getElementById('btn-measure');
 
 const btnCloseLayers = document.getElementById('close-layers');
@@ -269,13 +279,32 @@ btnPlans.addEventListener('click', () => {
 btnCloseLayers.addEventListener('click', closeAllPanels);
 btnClosePlans.addEventListener('click', closeAllPanels);
 
-btnBasemap.addEventListener('click', () => {
-    map.removeLayer(basemaps[currentBasemap]);
-    currentBasemap = currentBasemap === 'light' ? 'satellite' : 'light';
-    basemaps[currentBasemap].addTo(map);
-    btnBasemap.classList.toggle('active', currentBasemap === 'satellite');
+// Function to switch basemaps safely
+function setBasemap(name) {
+    Object.keys(basemaps).forEach(key => map.removeLayer(basemaps[key]));
+    basemaps[name].addTo(map);
+    currentBasemap = name;
     
-    // Refresh texts styling depending on new map style
+    // Update UI active states
+    btnBasemap.classList.toggle('active', name === 'satellite');
+    btnBasemap2020.classList.toggle('active', name === 'history2020');
+}
+
+btnBasemap.addEventListener('click', () => {
+    if (currentBasemap === 'satellite') {
+        setBasemap('light');
+    } else {
+        setBasemap('satellite');
+    }
+    refreshAllPlansStyling();
+});
+
+btnBasemap2020.addEventListener('click', () => {
+    if (currentBasemap === 'history2020') {
+        setBasemap('light');
+    } else {
+        setBasemap('history2020');
+    }
     refreshAllPlansStyling();
 });
 
@@ -870,3 +899,118 @@ btnGps.addEventListener('click', () => {
 
 // Start DB processing
 loadPlansFromDB();
+
+// --- Map Notes Logic ---
+let isNoteMode = false;
+let notes = [];
+
+async function saveNoteToDB(note) {
+    const db = await initDB();
+    const tx = db.transaction(NOTES_STORE, "readwrite");
+    const store = tx.objectStore(NOTES_STORE);
+    store.put(note);
+}
+
+async function deleteNoteFromDB(id) {
+    const db = await initDB();
+    const tx = db.transaction(NOTES_STORE, "readwrite");
+    const store = tx.objectStore(NOTES_STORE);
+    store.delete(id);
+}
+
+async function loadNotesFromDB() {
+    const db = await initDB();
+    const tx = db.transaction(NOTES_STORE, "readonly");
+    const store = tx.objectStore(NOTES_STORE);
+    const request = store.getAll();
+    request.onsuccess = () => {
+        notes = request.result;
+        notes.forEach(renderNote);
+    };
+}
+
+function renderNote(note) {
+    const marker = L.marker(note.latlng, {
+        icon: L.divIcon({
+            className: 'note-marker',
+            html: '📌',
+            iconSize: [24, 24],
+            iconAnchor: [12, 24]
+        })
+    }).addTo(map);
+
+    const popupContent = `
+        <div class="note-popup">
+            <p>${note.text}</p>
+            <button onclick="deleteNote('${note.id}')" class="btn-delete" style="width:100%; margin-top:8px;">Eliminar</button>
+        </div>
+    `;
+    marker.bindPopup(popupContent);
+    note.marker = marker;
+}
+
+window.deleteNote = async (id) => {
+    const index = notes.findIndex(n => n.id === id);
+    if (index !== -1) {
+        map.removeLayer(notes[index].marker);
+        notes.splice(index, 1);
+        await deleteNoteFromDB(id);
+    }
+};
+
+btnNote.addEventListener('click', () => {
+    isNoteMode = !isNoteMode;
+    btnNote.classList.toggle('active', isNoteMode);
+    coordsDisplay.classList.toggle('visible', isNoteMode);
+    if (isNoteMode) {
+        showAlert("Modo Nota activo. Toca el mapa para dejar una viñeta.");
+    }
+});
+
+map.on('click', async (e) => {
+    if (!isNoteMode) return;
+    
+    const text = prompt("Escribe tu nota o recordatorio:");
+    if (text && text.trim() !== "") {
+        const note = {
+            id: Date.now().toString(),
+            latlng: [e.latlng.lat, e.latlng.lng],
+            text: text.trim()
+        };
+        notes.push(note);
+        renderNote(note);
+        await saveNoteToDB(note);
+    }
+    
+    isNoteMode = false;
+    btnNote.classList.remove('active');
+    coordsDisplay.classList.remove('visible');
+});
+
+// Load everything on start
+loadNotesFromDB();
+
+// Coordinate Display Logic
+const coordsDisplay = document.getElementById('coords-display');
+
+map.on('mousemove', (e) => {
+    const latlng = e.latlng;
+    try {
+        // Convert from WGS84 (EPSG:4326) to UTM Zone 19S (EPSG:32719)
+        const utm = proj4("EPSG:4326", "EPSG:32719", [latlng.lng, latlng.lat]);
+        const easting = utm[0].toLocaleString('es-PE', { maximumFractionDigits: 2 });
+        const northing = utm[1].toLocaleString('es-PE', { maximumFractionDigits: 2 });
+        coordsDisplay.innerText = `UTM: ${easting} E, ${northing} N`;
+    } catch (err) {
+        coordsDisplay.innerText = `UTM: --`;
+    }
+});
+
+// Offline support notifications
+window.addEventListener('online', () => {
+    showAlert("Conexión restaurada. Los mapas se seguirán guardando para uso offline.");
+});
+
+window.addEventListener('offline', () => {
+    showAlert("Sin conexión. Usando mapas guardados en caché.");
+});
