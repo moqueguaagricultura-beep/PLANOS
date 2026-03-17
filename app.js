@@ -1035,7 +1035,7 @@ function closeNoteModal() {
 loadNotesFromDB();
 
 // Coordinate Display Logic
-const coordsDisplay = document.getElementById('coords-display');
+// (coordsDisplay already declared at top)
 
 map.on('mousemove', (e) => {
     if (isNoteMode) return; // In note mode, we track center
