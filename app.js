@@ -197,14 +197,32 @@ async function loadPlansFromDB() {
         if (savedPlans && savedPlans.length > 0) {
             loadingOverlay.classList.remove('hidden');
             const parser = new window.DxfParser();
+            
+            // Temporary collection to fit bounds after all are processed
+            const allBounds = L.latLngBounds();
+            let plansWithBounds = 0;
+
             savedPlans.forEach(saved => {
                 try {
                     const dxf = parser.parseSync(saved.rawDxf);
+                    // processDxf adds the plan to loadedPlans
                     processDxf(saved.name, dxf, saved.id, saved);
+                    
+                    // We need the bounds from the newly loaded plan
+                    const lastPlan = loadedPlans[loadedPlans.length - 1];
+                    if (lastPlan && lastPlan.bounds) {
+                        allBounds.extend(lastPlan.bounds);
+                        plansWithBounds++;
+                    }
                 } catch (e) {
                     console.error("Error loading saved plan:", saved.name, e);
                 }
             });
+
+            if (plansWithBounds > 0) {
+                map.fitBounds(allBounds, { padding: [50, 50] });
+            }
+
             loadingOverlay.classList.add('hidden');
         }
     };
