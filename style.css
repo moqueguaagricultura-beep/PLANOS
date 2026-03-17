@@ -609,3 +609,12 @@ body.hide-dxf-texts .dxf-text {
 #coords-display.visible {
     display: block;
 }
+
+#center-crosshair {
+    transition: opacity 0.3s ease;
+}
+
+#center-crosshair.hidden {
+    opacity: 0;
+    pointer-events: none;
+}

@@ -106,13 +106,22 @@
     <!-- DXF Parser -->
     <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
 
-    <!-- Custom Alert Modal -->
-    <div id="custom-alert" class="modal-overlay hidden">
+    <!-- Custom Note Modal -->
+    <div id="note-modal" class="modal-overlay hidden">
         <div class="modal-content">
-            <h3 id="alert-title">PLANOS DXF_EDC</h3>
-            <p id="alert-message"></p>
-            <button id="alert-ok" class="btn-primary">Aceptar</button>
+            <h3>PLANOS DXF_EDC</h3>
+            <p>Escribe tu nota o recordatorio:</p>
+            <textarea id="note-text" placeholder="Tu nota aquí..." style="width:100%; height:80px; padding:8px; border-radius:8px; border:1px solid var(--border); margin-bottom:16px; font-family:inherit;"></textarea>
+            <div style="display:flex; gap:8px;">
+                <button id="note-cancel" class="btn-primary" style="background:#6b7280;">Cancelar</button>
+                <button id="note-save" class="btn-primary">Guardar Nota</button>
+            </div>
         </div>
+    </div>
+
+    <!-- Center Crosshair for Mobile -->
+    <div id="center-crosshair" class="hidden" style="position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:2000; pointer-events:none; color:var(--primary); font-size:24px; text-shadow: 0 0 2px white;">
+        ➕
     </div>
 
     <div id="coords-display">UTM: --</div>
