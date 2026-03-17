@@ -570,6 +570,17 @@ body.hide-dxf-texts .dxf-text {
     justify-content: center;
 }
 
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.modal-actions button {
+    flex: 1;
+    width: auto !important;
+}
+
 /* Note Styles */
 .note-marker {
     font-size: 1.5rem;
