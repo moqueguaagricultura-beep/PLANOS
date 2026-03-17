@@ -264,6 +264,8 @@ const modalAlert = document.getElementById('custom-alert');
 const alertMsg = document.getElementById('alert-message');
 const btnAlertOk = document.getElementById('alert-ok');
 
+const coordsDisplay = document.getElementById('coords-display');
+
 // Custom Alert Replacement
 function showAlert(message) {
     alertMsg.innerText = message;
@@ -1052,7 +1054,6 @@ function closeNoteModal() {
 // Load everything on start
 loadNotesFromDB();
 
-// Coordinate Display Logic
 // (coordsDisplay already declared at top)
 
 map.on('mousemove', (e) => {
