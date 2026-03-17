@@ -924,7 +924,6 @@ const centerCrosshair = document.getElementById('center-crosshair');
 const noteModal = document.getElementById('note-modal');
 const noteText = document.getElementById('note-text');
 const btnNoteSave = document.getElementById('note-save');
-const btnNoteCancel = document.getElementById('note-cancel');
 
 // --- Map Notes Logic ---
 let isNoteMode = false;
@@ -1035,12 +1034,7 @@ function openNoteModal(latlng) {
         closeNoteModal();
     };
 
-    const cancelHandler = () => {
-        closeNoteModal();
-    };
-
     btnNoteSave.onclick = saveHandler;
-    btnNoteCancel.onclick = cancelHandler;
 }
 
 function closeNoteModal() {
