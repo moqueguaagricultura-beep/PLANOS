@@ -34,8 +34,12 @@ async function processFileHandle(fileHandle) {
 proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_defs");
 
 // 2. Initialize Map & Basemaps (Centered on Moquegua, Peru)
-// Set maxZoom astronomically high so users can zoom deeply into small lots
-const map = L.map('map', {zoomControl: false, maxZoom: 26}).setView([-17.195, -70.936], 9);
+// Set preferCanvas: true for hardware acceleration (critical for heavy DXFs)
+const map = L.map('map', {
+    zoomControl: false, 
+    maxZoom: 26,
+    preferCanvas: true
+}).setView([-17.195, -70.936], 9);
 map.attributionControl.setPrefix('EDWIN DIAZ CAMACHO');
 
 // Semantic Zooming: Hide text annotations if map is zoomed out too far to prevent clutter
