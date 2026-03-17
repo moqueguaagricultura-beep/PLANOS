@@ -985,15 +985,19 @@ window.deleteNote = async (id) => {
 };
 
 btnNote.addEventListener('click', () => {
-    isNoteMode = !isNoteMode;
-    btnNote.classList.toggle('active', isNoteMode);
-    coordsDisplay.classList.toggle('visible', isNoteMode);
-    centerCrosshair.classList.toggle('hidden', !isNoteMode);
-    
     if (isNoteMode) {
-        updateCoordsFromCenter();
-        showAlert("Ubica el punto con la cruz central y toca el botón 'Agregar Nota' nuevamente o toca el mapa.");
+        // If already in note mode, clicking the button again should open the modal at the center
+        const center = map.getCenter();
+        openNoteModal(center);
+        return;
     }
+    
+    isNoteMode = true;
+    btnNote.classList.add('active');
+    coordsDisplay.classList.toggle('visible', true);
+    centerCrosshair.classList.remove('hidden');
+    updateCoordsFromCenter();
+    showAlert("Ubica el punto con la cruz central y toca el botón 'Agregar Nota' nuevamente o toca el mapa.");
 });
 
 function updateCoordsFromCenter() {
@@ -1030,9 +1034,17 @@ function openNoteModal(latlng) {
             };
             notes.push(note);
             renderNote(note);
-            await saveNoteToDB(note);
+            // Close modal immediately for a snappy feel
+            closeNoteModal();
+            // Then save to DB in background
+            try {
+                await saveNoteToDB(note);
+            } catch (err) {
+                console.error("Error saving note:", err);
+            }
+        } else {
+            closeNoteModal();
         }
-        closeNoteModal();
     };
 
     btnNoteSave.onclick = saveHandler;
