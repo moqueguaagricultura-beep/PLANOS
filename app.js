@@ -268,18 +268,17 @@ const coordsDisplay = document.getElementById('coords-display');
 
 // Custom Alert Replacement
 function showAlert(message) {
-    openUIComponent(() => {
-        alertMsg.innerText = message;
-        modalAlert.classList.remove('hidden');
-    });
+    // Simple alert without pushing history state
+    alertMsg.innerText = message;
+    modalAlert.classList.remove('hidden');
 }
 
 btnAlertOk.addEventListener('click', () => {
-    closeAllUI(true);
+    modalAlert.classList.add('hidden');
 });
 
 // UI Interactions
-function closeAllUI(shouldGoBack = true) {
+function closeAllUI(shouldGoBack = true, resetInteractions = true) {
     // 1. Panels
     panelLayers.classList.add('hidden');
     panelPlans.classList.add('hidden');
@@ -287,17 +286,16 @@ function closeAllUI(shouldGoBack = true) {
     btnPlans.classList.remove('active');
 
     // 2. Modals
-    if (typeof closeNoteModal === 'function') closeNoteModal(false);
+    if (typeof closeNoteModal === 'function') closeNoteModal(false, resetInteractions);
     modalAlert.classList.add('hidden');
 
     // 3. Loading Overlay
     loadingOverlay.classList.add('hidden');
 
-    // 4. Reset Interaction Modes
-    isMeasuring = false;
-    btnMeasure.classList.remove('active');
-    if (typeof clearMeasurement === 'function') clearMeasurement();
-    map.getContainer().style.cursor = '';
+    // 4. Reset Interaction Modes (only if requested)
+    if (resetInteractions) {
+        deactivateInteractionModes();
+    }
 
     // 5. Mobile Search Collapse
     const searchContainer = document.querySelector('.search-container');
@@ -309,15 +307,28 @@ function closeAllUI(shouldGoBack = true) {
     }
 }
 
+function deactivateInteractionModes() {
+    isMeasuring = false;
+    btnMeasure.classList.remove('active');
+    if (typeof clearMeasurement === 'function') clearMeasurement();
+    map.getContainer().style.cursor = '';
+
+    isNoteMode = false;
+    if (typeof btnNote !== 'undefined') btnNote.classList.remove('active');
+    if (typeof coordsDisplay !== 'undefined') coordsDisplay.classList.remove('visible');
+    if (typeof centerCrosshair !== 'undefined') centerCrosshair.classList.add('hidden');
+}
+
 // Global Back Button Handler (Mobile)
 window.addEventListener('popstate', (e) => {
     // If the new state doesn't have uiOpen, it means the user hit 'back' to exit a UI state
     if (!e.state || !e.state.uiOpen) {
-        closeAllUI(false);
+        closeAllUI(false, true);
     }
 });
 
 function openUIComponent(openFn) {
+    // Only push state if we are opening a major panel or modal that should be closeable via Back button
     if (!window.history.state || !window.history.state.uiOpen) {
         window.history.pushState({ uiOpen: true }, '');
     }
@@ -384,17 +395,16 @@ btnBasemap2020.addEventListener('click', () => {
 
 // Measurement Tool Logic
 btnMeasure.addEventListener('click', () => {
-    isMeasuring = !isMeasuring;
     if (isMeasuring) {
+        closeAllUI(true, true); // This will call deactivateInteractionModes()
+    } else {
         openUIComponent(() => {
-            closeAllUI(false);
-            isMeasuring = true; // Reinstate after closeAllUI cleared it
+            closeAllUI(false, true); // Clear any other open state first
+            isMeasuring = true; 
             btnMeasure.classList.add('active');
             map.getContainer().style.cursor = 'crosshair';
             showAlert("Modo Medición: Toca puntos en el mapa para medir distancias.");
         });
-    } else {
-        closeAllUI(true);
     }
 });
 
@@ -427,7 +437,9 @@ function addMeasurementPoint(latlng) {
 }
 
 map.on('click', (e) => {
-    if (isMeasuring) addMeasurementPoint(e.latlng);
+    if (isMeasuring) {
+        addMeasurementPoint(e.latlng);
+    }
 });
 
 // 4. File Upload and Parsing
@@ -1094,7 +1106,7 @@ btnNote.addEventListener('click', () => {
     }
     
     openUIComponent(() => {
-        closeAllUI(false);
+        closeAllUI(false, true); // Clear other modes/panels
         isNoteMode = true;
         btnNote.classList.add('active');
         coordsDisplay.classList.toggle('visible', true);
@@ -1157,12 +1169,14 @@ function openNoteModal(latlng) {
     btnNoteCancel.onclick = () => closeAllUI(true);
 }
 
-function closeNoteModal(shouldGoBack = true) {
+function closeNoteModal(shouldGoBack = true, resetMode = true) {
     noteModal.classList.add('hidden');
-    isNoteMode = false;
-    btnNote.classList.remove('active');
-    coordsDisplay.classList.remove('visible');
-    centerCrosshair.classList.add('hidden');
+    if (resetMode) {
+        isNoteMode = false;
+        btnNote.classList.remove('active');
+        coordsDisplay.classList.remove('visible');
+        centerCrosshair.classList.add('hidden');
+    }
     if (shouldGoBack && window.history.state && window.history.state.uiOpen) {
         window.history.back();
     }
