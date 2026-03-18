@@ -296,9 +296,14 @@ function closeAllUI(shouldGoBack = true) {
     // 4. Reset Interaction Modes
     isMeasuring = false;
     btnMeasure.classList.remove('active');
+    if (typeof clearMeasurement === 'function') clearMeasurement();
     map.getContainer().style.cursor = '';
 
-    // 5. History Management
+    // 5. Mobile Search Collapse
+    const searchContainer = document.querySelector('.search-container');
+    if (searchContainer) searchContainer.classList.remove('expanded');
+
+    // 6. History Management
     if (shouldGoBack && window.history.state && window.history.state.uiOpen) {
         window.history.back();
     }
@@ -380,13 +385,16 @@ btnBasemap2020.addEventListener('click', () => {
 // Measurement Tool Logic
 btnMeasure.addEventListener('click', () => {
     isMeasuring = !isMeasuring;
-    btnMeasure.classList.toggle('active', isMeasuring);
-    if (!isMeasuring) {
-        clearMeasurement();
+    if (isMeasuring) {
+        openUIComponent(() => {
+            closeAllUI(false);
+            isMeasuring = true; // Reinstate after closeAllUI cleared it
+            btnMeasure.classList.add('active');
+            map.getContainer().style.cursor = 'crosshair';
+            showAlert("Modo Medición: Toca puntos en el mapa para medir distancias.");
+        });
     } else {
-        closeAllUI(false);
-        map.getContainer().style.cursor = 'crosshair';
-        showAlert("Modo Medición: Toca puntos en el mapa para medir distancias.");
+        closeAllUI(true);
     }
 });
 
@@ -463,13 +471,15 @@ function performSearch() {
     // Mobile Toggle Logic: if on mobile, clicking the button triggers expansion/collapse
     if (window.innerWidth <= 600) {
         if (!container.classList.contains('expanded')) {
-            container.classList.add('expanded');
-            searchInput.focus();
+            openUIComponent(() => {
+                container.classList.add('expanded');
+                searchInput.focus();
+            });
             return; // Just expand on first click
         }
         // If already expanded but empty, collapse it
         if (!term) {
-            container.classList.remove('expanded');
+            closeAllUI(true);
             return;
         }
     }
@@ -1083,12 +1093,15 @@ btnNote.addEventListener('click', () => {
         return;
     }
     
-    isNoteMode = true;
-    btnNote.classList.add('active');
-    coordsDisplay.classList.toggle('visible', true);
-    centerCrosshair.classList.remove('hidden');
-    updateCoordsFromCenter();
-    showAlert("Ubica el punto con la cruz central y toca el botón 'Agregar Nota' nuevamente o toca el mapa.");
+    openUIComponent(() => {
+        closeAllUI(false);
+        isNoteMode = true;
+        btnNote.classList.add('active');
+        coordsDisplay.classList.toggle('visible', true);
+        centerCrosshair.classList.remove('hidden');
+        updateCoordsFromCenter();
+        showAlert("Ubica el punto con la cruz central y toca el botón 'Agregar Nota' nuevamente o toca el mapa.");
+    });
 });
 
 function updateCoordsFromCenter() {
