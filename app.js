@@ -268,36 +268,85 @@ const coordsDisplay = document.getElementById('coords-display');
 
 // Custom Alert Replacement
 function showAlert(message) {
-    alertMsg.innerText = message;
-    modalAlert.classList.remove('hidden');
+    openUIComponent(() => {
+        alertMsg.innerText = message;
+        modalAlert.classList.remove('hidden');
+    });
 }
 
 btnAlertOk.addEventListener('click', () => {
-    modalAlert.classList.add('hidden');
+    closeAllUI(true);
 });
 
 // UI Interactions
-function closeAllPanels() {
+function closeAllUI(shouldGoBack = true) {
+    // 1. Panels
     panelLayers.classList.add('hidden');
     panelPlans.classList.add('hidden');
     btnLayers.classList.remove('active');
     btnPlans.classList.remove('active');
+
+    // 2. Modals
+    if (typeof closeNoteModal === 'function') closeNoteModal(false);
+    modalAlert.classList.add('hidden');
+
+    // 3. Loading Overlay
+    loadingOverlay.classList.add('hidden');
+
+    // 4. Reset Interaction Modes
+    isMeasuring = false;
+    btnMeasure.classList.remove('active');
+    map.getContainer().style.cursor = '';
+
+    // 5. History Management
+    if (shouldGoBack && window.history.state && window.history.state.uiOpen) {
+        window.history.back();
+    }
+}
+
+// Global Back Button Handler (Mobile)
+window.addEventListener('popstate', (e) => {
+    // If the new state doesn't have uiOpen, it means the user hit 'back' to exit a UI state
+    if (!e.state || !e.state.uiOpen) {
+        closeAllUI(false);
+    }
+});
+
+function openUIComponent(openFn) {
+    if (!window.history.state || !window.history.state.uiOpen) {
+        window.history.pushState({ uiOpen: true }, '');
+    }
+    openFn();
 }
 
 btnLayers.addEventListener('click', () => {
-    let isActive = !panelLayers.classList.contains('hidden');
-    closeAllPanels();
-    if (!isActive) { panelLayers.classList.remove('hidden'); btnLayers.classList.add('active'); }
+    let isHidden = panelLayers.classList.contains('hidden');
+    if (isHidden) {
+        openUIComponent(() => {
+            closeAllUI(false);
+            panelLayers.classList.remove('hidden');
+            btnLayers.classList.add('active');
+        });
+    } else {
+        closeAllUI(true);
+    }
 });
 
 btnPlans.addEventListener('click', () => {
-    let isActive = !panelPlans.classList.contains('hidden');
-    closeAllPanels();
-    if (!isActive) { panelPlans.classList.remove('hidden'); btnPlans.classList.add('active'); }
+    let isHidden = panelPlans.classList.contains('hidden');
+    if (isHidden) {
+        openUIComponent(() => {
+            closeAllUI(false);
+            panelPlans.classList.remove('hidden');
+            btnPlans.classList.add('active');
+        });
+    } else {
+        closeAllUI(true);
+    }
 });
 
-btnCloseLayers.addEventListener('click', closeAllPanels);
-btnClosePlans.addEventListener('click', closeAllPanels);
+btnCloseLayers.addEventListener('click', () => closeAllUI(true));
+btnClosePlans.addEventListener('click', () => closeAllUI(true));
 
 // Function to switch basemaps safely
 function setBasemap(name) {
@@ -335,7 +384,7 @@ btnMeasure.addEventListener('click', () => {
     if (!isMeasuring) {
         clearMeasurement();
     } else {
-        closeAllPanels();
+        closeAllUI(false);
         map.getContainer().style.cursor = 'crosshair';
         showAlert("Modo Medición: Toca puntos en el mapa para medir distancias.");
     }
@@ -397,6 +446,13 @@ dxfUpload.addEventListener('change', (e) => {
         }, 50);
     };
     reader.readAsText(file);
+});
+
+// Push history state when user clicks the "Cargar DXF" button (Mobile Back support)
+dxfUpload.addEventListener('click', () => {
+    if (!window.history.state || !window.history.state.uiOpen) {
+        window.history.pushState({ uiOpen: true }, '');
+    }
 });
 
 // Search Logic
@@ -829,7 +885,7 @@ function buildPlanPanel() {
 
         div.querySelector('.plan-name').addEventListener('click', () => {
             if (plan.bounds.isValid()) map.fitBounds(plan.bounds, { padding: [50, 50] });
-            closeAllPanels();
+            closeAllUI(false);
         });
 
         planList.appendChild(div);
@@ -1021,7 +1077,9 @@ btnNote.addEventListener('click', () => {
     if (isNoteMode) {
         // If already in note mode, clicking the button again should open the modal at the center
         const center = map.getCenter();
-        openNoteModal(center);
+        openUIComponent(() => {
+            openNoteModal(center);
+        });
         return;
     }
     
@@ -1050,7 +1108,9 @@ map.on('click', (e) => {
     
     // Use click point for PC, or center for mobile (user choice, but let's use center for consistency if Mode is active)
     const latlng = e.latlng; 
-    openNoteModal(latlng);
+    openUIComponent(() => {
+        openNoteModal(latlng);
+    });
 });
 
 function openNoteModal(latlng) {
@@ -1068,7 +1128,7 @@ function openNoteModal(latlng) {
             notes.push(note);
             renderNote(note);
             // Close modal immediately for a snappy feel
-            closeNoteModal();
+            closeAllUI(true);
             // Then save to DB in background
             try {
                 await saveNoteToDB(note);
@@ -1076,20 +1136,23 @@ function openNoteModal(latlng) {
                 console.error("Error saving note:", err);
             }
         } else {
-            closeNoteModal();
+            closeAllUI(true);
         }
     };
 
     btnNoteSave.onclick = saveHandler;
-    btnNoteCancel.onclick = () => closeNoteModal();
+    btnNoteCancel.onclick = () => closeAllUI(true);
 }
 
-function closeNoteModal() {
+function closeNoteModal(shouldGoBack = true) {
     noteModal.classList.add('hidden');
     isNoteMode = false;
     btnNote.classList.remove('active');
     coordsDisplay.classList.remove('visible');
     centerCrosshair.classList.add('hidden');
+    if (shouldGoBack && window.history.state && window.history.state.uiOpen) {
+        window.history.back();
+    }
 }
 
 // Load everything on start

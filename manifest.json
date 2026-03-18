@@ -16,9 +16,11 @@
   ],
   "file_handlers": [
     {
-      "action": "index.html",
+      "action": "./index.html",
       "accept": {
-        "application/dxf": [".dxf"]
+        "application/dxf": [".dxf"],
+        "image/vnd.dxf": [".dxf"],
+        "application/x-dxf": [".dxf"]
       }
     }
   ]
