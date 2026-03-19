@@ -1020,12 +1020,12 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             // --- Resolve HATCH color exactly like the main entity loop ---
             // Step 1: Get the layer's default color (same logic as tableLayerColorNum above)
             let hTableLayerColorNum = 7;
-            if (tableLayers && tableLayers[hLayerName]) {
-                const lData = tableLayers[hLayerName];
-                if (lData.colorNumber !== undefined)      hTableLayerColorNum = lData.colorNumber;
-                else if (lData.colorIndex !== undefined)  hTableLayerColorNum = lData.colorIndex;
-                else if (lData.color !== undefined)       hTableLayerColorNum = lData.color;
-                else if (lData.trueColor)                 hTableLayerColorNum = `#${lData.trueColor.toString(16).padStart(6, '0')}`;
+            const hLayerTableData = tableLayers && tableLayers[hLayerName];
+            if (hLayerTableData) {
+                if (hLayerTableData.colorNumber !== undefined)      hTableLayerColorNum = hLayerTableData.colorNumber;
+                else if (hLayerTableData.colorIndex !== undefined)  hTableLayerColorNum = hLayerTableData.colorIndex;
+                else if (hLayerTableData.color !== undefined)       hTableLayerColorNum = hLayerTableData.color;
+                else if (hLayerTableData.trueColor)                 hTableLayerColorNum = `#${hLayerTableData.trueColor.toString(16).padStart(6, '0')}`;
             }
 
             // Step 2: Get the entity's own color (same logic as entityColorNum above)
@@ -1039,6 +1039,13 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             }
 
             const hColor = getEntityColor(hEntityColorNum);
+
+            // DEBUG — log first 10 hatches to console
+            if (window._hatchDebugCount === undefined) window._hatchDebugCount = 0;
+            if (window._hatchDebugCount < 10) {
+                console.log(`HATCH[${window._hatchDebugCount}] layer="${hLayerName}" colorIndex=${hEntity.colorIndex} tableLayerColorNum=${hTableLayerColorNum} entityColorNum=${hEntityColorNum} → hColor=${hColor} | tableLayerInDB=${!!hLayerTableData}`);
+                window._hatchDebugCount++;
+            }
 
             // Ensure the layer exists in layersData
             if (!layersData[hLayerName]) {
