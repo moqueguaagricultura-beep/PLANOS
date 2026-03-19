@@ -782,12 +782,31 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                     isPolygon = true;
                     geom = L.polygon(polygons, {
                         fillColor: featureColor,
-                        fillOpacity: 0.3,
+                        fillOpacity: 0.5,
                         weight: 1,
                         color: featureColor
                     });
                     geom._isHatch = true;
                 }
+            }
+        }
+        else if (entity.type === 'SOLID' || entity.type === 'TRACE') {
+            const pts = entity.points || entity.vertices || [];
+            if (pts.length >= 3) {
+                const p1 = convertPoint(pts[0].x, pts[0].y);
+                const p2 = convertPoint(pts[1].x, pts[1].y);
+                const p3 = convertPoint(pts[2].x, pts[2].y);
+                const p4 = pts[3] ? convertPoint(pts[3].x, pts[3].y) : p3;
+                
+                // DXF SOLIDs use 1, 2, 4, 3 vertex order for polygons (quads)
+                geom = L.polygon([p1, p2, p4, p3], {
+                    fillColor: featureColor,
+                    fillOpacity: 0.5,
+                    weight: 1,
+                    color: featureColor
+                });
+                isPolygon = true;
+                geom._isHatch = true; // Treat as hatch for rendering logic
             }
         }
 
@@ -895,7 +914,7 @@ function renderPlanAndLayersMap() {
                             color: customCol,
                             fillColor: customCol,
                             weight: feat._isHatch ? 1 : 2,
-                            fillOpacity: feat._isHatch ? 0.3 : 0
+                            fillOpacity: feat._isHatch ? 0.5 : 0
                         });
                     }
 
