@@ -1017,15 +1017,18 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         hatchEntities.forEach(hEntity => {
             const hLayerName = hEntity.layer || 'Default';
 
-            // Resolve the hatch entity color
-            let hColorNum = hEntity.colorIndex || 7;
+            // Resolve the hatch entity color — same logic as regular entities
+            // Default to 256 (ByLayer) if colorIndex was not found in the hatch entity
+            let hColorNum = (hEntity.colorIndex !== undefined) ? hEntity.colorIndex : 256;
             if (hEntity.trueColor) {
                 hColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
             } else if (hColorNum === 256 || hColorNum === 0) {
-                // Inherit from layer
+                // Inherit from layer table — use colorIndex (ACI), NOT .color (pre-computed int)
                 if (tableLayers && tableLayers[hLayerName]) {
                     const lData = tableLayers[hLayerName];
-                    hColorNum = lData.colorIndex || lData.colorNumber || lData.color || 7;
+                    hColorNum = (lData.colorNumber !== undefined) ? lData.colorNumber
+                              : (lData.colorIndex !== undefined) ? lData.colorIndex
+                              : 7;
                 }
             }
             const hColor = getEntityColor(hColorNum);
@@ -1036,7 +1039,9 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 let tableColorNum = 7;
                 if (tableLayers && tableLayers[hLayerName]) {
                     const lData = tableLayers[hLayerName];
-                    tableColorNum = lData.colorIndex || lData.colorNumber || lData.color || 7;
+                    tableColorNum = (lData.colorNumber !== undefined) ? lData.colorNumber
+                                  : (lData.colorIndex !== undefined) ? lData.colorIndex
+                                  : 7;
                 }
                 layersData[hLayerName] = {
                     color: getEntityColor(tableColorNum),
