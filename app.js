@@ -566,7 +566,191 @@ function calculatePlanarArea(vertices) {
 }
 
 // 5. Plan and Layer Management
+/**
+ * Custom HATCH parser — dxf-parser@1.1.2 does NOT support HATCH entities.
+ * This function reads the raw DXF text and extracts all HATCH boundary polylines.
+ * Returns an array of entity-like objects with {layer, colorIndex, loops: [{polyline:[{x,y}]}]}
+ */
+function parseHatchEntities(rawDxf, tableLayers) {
+    const results = [];
+    if (!rawDxf) return results;
+
+    // Split into lines
+    const lines = rawDxf.split(/\r\n|\r|\n/);
+    let i = 0;
+
+    function nextCode() {
+        if (i >= lines.length - 1) return null;
+        const code = parseInt(lines[i].trim(), 10);
+        const val = lines[i + 1].trim();
+        i += 2;
+        return { code, val };
+    }
+
+    // Find each HATCH entity
+    while (i < lines.length - 1) {
+        const code = parseInt(lines[i].trim(), 10);
+        const val = lines[i + 1].trim();
+        i += 2;
+
+        if (code === 0 && val === 'HATCH') {
+            const entity = { type: 'HATCH', layer: '0', colorIndex: 7, loops: [] };
+            let numLoops = 0;
+            let loopsRead = 0;
+
+            // Read hatch header until we hit the boundary data (code 91 = number of loops)
+            while (i < lines.length - 1) {
+                const grpCode = parseInt(lines[i].trim(), 10);
+                const grpVal = lines[i + 1].trim();
+                i += 2;
+
+                if (grpCode === 0) { // Next entity
+                    i -= 2; // rewind
+                    break;
+                }
+                if (grpCode === 8) entity.layer = grpVal;
+                if (grpCode === 62) entity.colorIndex = Math.abs(parseInt(grpVal, 10));
+                if (grpCode === 420) entity.trueColor = parseInt(grpVal, 10); // TrueColor
+                if (grpCode === 91) {
+                    numLoops = parseInt(grpVal, 10);
+                    break;
+                }
+            }
+
+            // Read the boundary loops
+            for (let li = 0; li < numLoops; li++) {
+                let loopType = 0;
+                let numEdgesOrVerts = 0;
+                const loop = { polyline: [] };
+
+                // Read loop type & content type (92 = loop type, 93 = edge count, 72 = edge type flag)
+                while (i < lines.length - 1) {
+                    const grpCode = parseInt(lines[i].trim(), 10);
+                    const grpVal = lines[i + 1].trim();
+                    i += 2;
+
+                    if (grpCode === 0) { i -= 2; break; }
+
+                    if (grpCode === 92) { // boundary path type (1=external, 2=polyline, ...)
+                        loopType = parseInt(grpVal, 10);
+                        break;
+                    }
+                }
+
+                const isPolyline = (loopType & 2) !== 0;
+
+                if (isPolyline) {
+                    // Read polyline boundary: 93=vertex count, then 10/20 pairs
+                    while (i < lines.length - 1) {
+                        const grpCode = parseInt(lines[i].trim(), 10);
+                        const grpVal = lines[i + 1].trim();
+                        i += 2;
+
+                        if (grpCode === 0) { i -= 2; break; }
+                        if (grpCode === 93) { numEdgesOrVerts = parseInt(grpVal, 10); break; }
+                    }
+                    for (let vi = 0; vi < numEdgesOrVerts; vi++) {
+                        let px = null, py = null;
+                        while (i < lines.length - 1) {
+                            const grpCode = parseInt(lines[i].trim(), 10);
+                            const grpVal = lines[i + 1].trim();
+                            i += 2;
+                            if (grpCode === 10) { px = parseFloat(grpVal); }
+                            else if (grpCode === 20) { py = parseFloat(grpVal); break; }
+                            else if (grpCode === 0 || grpCode === 93) { i -= 2; break; }
+                        }
+                        if (px !== null && py !== null) loop.polyline.push({ x: px, y: py });
+                    }
+                } else {
+                    // Edge-based: 93=edge count, edges have type (72) then coords
+                    while (i < lines.length - 1) {
+                        const grpCode = parseInt(lines[i].trim(), 10);
+                        const grpVal = lines[i + 1].trim();
+                        i += 2;
+                        if (grpCode === 0) { i -= 2; break; }
+                        if (grpCode === 93) { numEdgesOrVerts = parseInt(grpVal, 10); break; }
+                    }
+                    for (let ei = 0; ei < numEdgesOrVerts; ei++) {
+                        let edgeType = 1;
+                        // Read edge type (72)
+                        while (i < lines.length - 1) {
+                            const grpCode = parseInt(lines[i].trim(), 10);
+                            const grpVal = lines[i + 1].trim();
+                            i += 2;
+                            if (grpCode === 0) { i -= 2; break; }
+                            if (grpCode === 72) { edgeType = parseInt(grpVal, 10); break; }
+                        }
+                        if (edgeType === 1) { // Line
+                            let x1 = null, y1 = null, x2 = null, y2 = null;
+                            while (i < lines.length - 1) {
+                                const grpCode = parseInt(lines[i].trim(), 10);
+                                const grpVal = lines[i + 1].trim();
+                                i += 2;
+                                if (grpCode === 10) x1 = parseFloat(grpVal);
+                                else if (grpCode === 20) y1 = parseFloat(grpVal);
+                                else if (grpCode === 11) x2 = parseFloat(grpVal);
+                                else if (grpCode === 21) { y2 = parseFloat(grpVal); break; }
+                                else if (grpCode === 0 || grpCode === 72) { i -= 2; break; }
+                            }
+                            if (x1 !== null) loop.polyline.push({ x: x1, y: y1 });
+                            if (x2 !== null) loop.polyline.push({ x: x2, y: y2 });
+                        } else if (edgeType === 2) { // Arc
+                            let cx = 0, cy = 0, r = 0, sa = 0, ea = 360, ccw = true;
+                            while (i < lines.length - 1) {
+                                const grpCode = parseInt(lines[i].trim(), 10);
+                                const grpVal = lines[i + 1].trim();
+                                i += 2;
+                                if (grpCode === 10) cx = parseFloat(grpVal);
+                                else if (grpCode === 20) cy = parseFloat(grpVal);
+                                else if (grpCode === 40) r = parseFloat(grpVal);
+                                else if (grpCode === 50) sa = parseFloat(grpVal);
+                                else if (grpCode === 51) ea = parseFloat(grpVal);
+                                else if (grpCode === 73) { ccw = parseInt(grpVal, 10) === 1; break; }
+                                else if (grpCode === 0 || grpCode === 72) { i -= 2; break; }
+                            }
+                            let diff = ea - sa;
+                            if (ccw && diff < 0) diff += 360;
+                            if (!ccw && diff > 0) diff -= 360;
+                            const steps = 12;
+                            for (let si = 0; si <= steps; si++) {
+                                const ang = (sa + (diff * si / steps)) * Math.PI / 180;
+                                loop.polyline.push({ x: cx + r * Math.cos(ang), y: cy + r * Math.sin(ang) });
+                            }
+                        } else if (edgeType === 3 || edgeType === 4) {
+                            // Ellipse or spline — skip remaining codes until next edge or loop
+                            while (i < lines.length - 1) {
+                                const grpCode = parseInt(lines[i].trim(), 10);
+                                if (grpCode === 72 || grpCode === 97 || grpCode === 0) break;
+                                i += 2;
+                            }
+                        }
+                    }
+                }
+
+                // Skip to next loop (code 97 = num source objects, skip them)
+                while (i < lines.length - 1) {
+                    const grpCode = parseInt(lines[i].trim(), 10);
+                    const grpVal = lines[i + 1].trim();
+                    if (grpCode === 0) break;
+                    if (grpCode === 92 || grpCode === 75) { break; } // next loop starts
+                    i += 2;
+                }
+
+                if (loop.polyline.length > 2) {
+                    entity.loops.push(loop);
+                }
+                loopsRead++;
+            }
+
+            if (entity.loops.length > 0) results.push(entity);
+        }
+    }
+
+    return results;
+}
+
 function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxfString = null) {
+
     const planId = existingId || 'plan_' + Date.now();
     const group = L.layerGroup().addTo(map);
 
@@ -825,6 +1009,67 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             layersData[layerName].features.push(geom);
         }
     });
+
+    // --- HATCH: parsed manually because dxf-parser@1.1.2 does NOT support HATCH ---
+    const rawForHatch = rawDxfString || savedConfig?.rawDxf;
+    if (rawForHatch) {
+        const hatchEntities = parseHatchEntities(rawForHatch, tableLayers);
+        hatchEntities.forEach(hEntity => {
+            const hLayerName = hEntity.layer || 'Default';
+
+            // Resolve the hatch entity color
+            let hColorNum = hEntity.colorIndex || 7;
+            if (hEntity.trueColor) {
+                hColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
+            } else if (hColorNum === 256 || hColorNum === 0) {
+                // Inherit from layer
+                if (tableLayers && tableLayers[hLayerName]) {
+                    const lData = tableLayers[hLayerName];
+                    hColorNum = lData.colorIndex || lData.colorNumber || lData.color || 7;
+                }
+            }
+            const hColor = getEntityColor(hColorNum);
+
+            // Ensure the layer exists in layersData
+            if (!layersData[hLayerName]) {
+                const lConfig = savedConfig?.layersConfig?.[hLayerName];
+                let tableColorNum = 7;
+                if (tableLayers && tableLayers[hLayerName]) {
+                    const lData = tableLayers[hLayerName];
+                    tableColorNum = lData.colorIndex || lData.colorNumber || lData.color || 7;
+                }
+                layersData[hLayerName] = {
+                    color: getEntityColor(tableColorNum),
+                    customColor: lConfig?.customColor || null,
+                    visible: lConfig !== undefined ? lConfig.visible : true,
+                    features: []
+                };
+            }
+
+            hEntity.loops.forEach(loop => {
+                if (!loop.polyline || loop.polyline.length < 3) return;
+                const pts = loop.polyline.map(v => convertPoint(v.x, v.y));
+                const polygon = L.polygon(pts, {
+                    fillColor: hColor,
+                    fillOpacity: 0.6,
+                    weight: 1,
+                    color: hColor,
+                    opacity: 1
+                });
+                polygon._isText = false;
+                polygon._isPolygon = true;
+                polygon._isHatch = true;
+                polygon._featureColor = hColor;
+                polygon.on('click', (e) => {
+                    if (isMeasuring) {
+                        L.DomEvent.stopPropagation(e);
+                        addMeasurementPoint(e.latlng);
+                    }
+                });
+                layersData[hLayerName].features.push(polygon);
+            });
+        });
+    }
 
     if (hasGeoms) {
         const newPlan = {
