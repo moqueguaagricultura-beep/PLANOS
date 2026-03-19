@@ -741,23 +741,22 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 }
             }
         }
-        else if (entity.type === 'HATCH') {
-            if (entity.loops && entity.loops.length > 0) {
+        else if (entity.type === 'HATCH' || entity.type === 'MPOLYGON') {
+            const loops = entity.loops || (entity.vertices ? [{ polyline: entity.vertices, closed: true }] : []); 
+            if (loops.length > 0) {
                 const polygons = [];
-                entity.loops.forEach(loop => {
+                loops.forEach(loop => {
                     let loopPoints = [];
                     if (loop.polyline) {
                         loopPoints = loop.polyline.map(v => convertPoint(v.x, v.y));
                     } else if (loop.edges) {
                         loop.edges.forEach(edge => {
-                            if (edge.type === 1) { // Line Edge
-                                if (edge.start && edge.end) {
-                                    loopPoints.push(convertPoint(edge.start.x, edge.start.y));
-                                    loopPoints.push(convertPoint(edge.end.x, edge.end.y));
-                                } else if (edge.vertices && edge.vertices.length > 0) {
-                                  edge.vertices.forEach(v => loopPoints.push(convertPoint(v.x, v.y)));
-                                }
-                            } else if (edge.type === 2) { // Arc Edge
+                            if (edge.type === 1) { // Line
+                                const start = edge.start || (edge.vertices ? edge.vertices[0] : null);
+                                const end = edge.end || (edge.vertices ? edge.vertices[1] : null);
+                                if (start) loopPoints.push(convertPoint(start.x, start.y));
+                                if (end) loopPoints.push(convertPoint(end.x, end.y));
+                            } else if (edge.type === 2) { // Arc
                                 const center = edge.center;
                                 const radius = edge.radius;
                                 const startAngle = edge.startAngle;
@@ -782,9 +781,10 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                     isPolygon = true;
                     geom = L.polygon(polygons, {
                         fillColor: featureColor,
-                        fillOpacity: 0.5,
-                        weight: 1,
-                        color: featureColor
+                        fillOpacity: 0.6,
+                        weight: 2,
+                        color: featureColor,
+                        opacity: 1
                     });
                     geom._isHatch = true;
                 }
@@ -797,16 +797,15 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 const p2 = convertPoint(pts[1].x, pts[1].y);
                 const p3 = convertPoint(pts[2].x, pts[2].y);
                 const p4 = pts[3] ? convertPoint(pts[3].x, pts[3].y) : p3;
-                
-                // DXF SOLIDs use 1, 2, 4, 3 vertex order for polygons (quads)
                 geom = L.polygon([p1, p2, p4, p3], {
                     fillColor: featureColor,
-                    fillOpacity: 0.5,
-                    weight: 1,
-                    color: featureColor
+                    fillOpacity: 0.6,
+                    weight: 2,
+                    color: featureColor,
+                    opacity: 1
                 });
                 isPolygon = true;
-                geom._isHatch = true; // Treat as hatch for rendering logic
+                geom._isHatch = true;
             }
         }
 
