@@ -742,7 +742,6 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             }
         }
         else if (entity.type === 'HATCH') {
-            // Process basic HATCH boundaries (no complex patterns yet)
             if (entity.loops && entity.loops.length > 0) {
                 const polygons = [];
                 entity.loops.forEach(loop => {
@@ -751,11 +750,29 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         loopPoints = loop.polyline.map(v => convertPoint(v.x, v.y));
                     } else if (loop.edges) {
                         loop.edges.forEach(edge => {
-                            if (edge.type === 1 && edge.vertices) { // Line edge
-                                edge.vertices.forEach(v => loopPoints.push(convertPoint(v.x, v.y)));
+                            if (edge.type === 1) { // Line Edge
+                                if (edge.start && edge.end) {
+                                    loopPoints.push(convertPoint(edge.start.x, edge.start.y));
+                                    loopPoints.push(convertPoint(edge.end.x, edge.end.y));
+                                } else if (edge.vertices && edge.vertices.length > 0) {
+                                  edge.vertices.forEach(v => loopPoints.push(convertPoint(v.x, v.y)));
+                                }
+                            } else if (edge.type === 2) { // Arc Edge
+                                const center = edge.center;
+                                const radius = edge.radius;
+                                const startAngle = edge.startAngle;
+                                const endAngle = edge.endAngle;
+                                const isCCW = edge.isCounterClockwise;
+                                const steps = 12;
+                                let diff = endAngle - startAngle;
+                                if (isCCW && diff < 0) diff += 360;
+                                if (!isCCW && diff > 0) diff -= 360;
+                                for (let i = 0; i <= steps; i++) {
+                                    const ang = startAngle + (diff * i / steps);
+                                    const rad = ang * Math.PI / 180;
+                                    loopPoints.push(convertPoint(center.x + radius * Math.cos(rad), center.y + radius * Math.sin(rad)));
+                                }
                             }
-                            // Arcs (type 2) are harder, but we can sample them if needed. 
-                            // For standard cadastral plans, lines/polylines are most common.
                         });
                     }
                     if (loopPoints.length > 2) polygons.push(loopPoints);
@@ -763,7 +780,6 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
                 if (polygons.length > 0) {
                     isPolygon = true;
-                    // Draw with a semi-transparent fill to represent the hatch
                     geom = L.polygon(polygons, {
                         fillColor: featureColor,
                         fillOpacity: 0.3,
