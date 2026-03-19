@@ -1023,15 +1023,22 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             if (hEntity.trueColor) {
                 hColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
             } else if (hColorNum === 256 || hColorNum === 0) {
-                // Inherit from layer table — use colorIndex (ACI), NOT .color (pre-computed int)
+                // Priority 1: Inherit from LAYER table (colorIndex is ACI, NOT .color which is a pre-computed int)
                 if (tableLayers && tableLayers[hLayerName]) {
                     const lData = tableLayers[hLayerName];
                     hColorNum = (lData.colorNumber !== undefined) ? lData.colorNumber
                               : (lData.colorIndex !== undefined) ? lData.colorIndex
                               : 7;
                 }
+                // Priority 2: If not found in layer table, use the color already established
+                // by other entities on the same layer (lines, text, etc.)
+                else if (layersData[hLayerName] && layersData[hLayerName].color) {
+                    hColorNum = layersData[hLayerName].color; // This is already a hex string
+                }
             }
-            const hColor = getEntityColor(hColorNum);
+            const hColor = (typeof hColorNum === 'string' && hColorNum.startsWith('#'))
+                ? hColorNum
+                : getEntityColor(hColorNum);
 
             // Ensure the layer exists in layersData
             if (!layersData[hLayerName]) {
