@@ -1017,39 +1017,28 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         hatchEntities.forEach(hEntity => {
             const hLayerName = hEntity.layer || 'Default';
 
-            // Resolve the hatch entity color — same logic as regular entities
-            // Default to 256 (ByLayer) if colorIndex was not found in the hatch entity
-            let hColorNum = (hEntity.colorIndex !== undefined) ? hEntity.colorIndex : 256;
-            if (hEntity.trueColor) {
-                hColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
-            } else if (hColorNum === 256 || hColorNum === 0) {
-                // Try every possible source of layer color
-
-                // 1) LAYER table colorIndex (ACI)
-                const lData = tableLayers && tableLayers[hLayerName];
-                if (lData && lData.colorIndex !== undefined && lData.colorIndex !== 0) {
-                    hColorNum = lData.colorIndex;
-                }
-                // 2) LAYER table colorNumber
-                else if (lData && lData.colorNumber !== undefined && lData.colorNumber !== 0) {
-                    hColorNum = lData.colorNumber;
-                }
-                // 3) color already stored in layersData (hex string from prior entities)
-                else if (layersData[hLayerName] && layersData[hLayerName].color) {
-                    hColorNum = layersData[hLayerName].color;
-                }
-                // 4) pick _featureColor from first existing feature on that layer
-                else if (layersData[hLayerName] && layersData[hLayerName].features.length > 0) {
-                    hColorNum = layersData[hLayerName].features[0]._featureColor || 7;
-                }
-                else {
-                    hColorNum = 7; // fallback black/white contrast
-                }
+            // --- Resolve HATCH color exactly like the main entity loop ---
+            // Step 1: Get the layer's default color (same logic as tableLayerColorNum above)
+            let hTableLayerColorNum = 7;
+            if (tableLayers && tableLayers[hLayerName]) {
+                const lData = tableLayers[hLayerName];
+                if (lData.colorNumber !== undefined)      hTableLayerColorNum = lData.colorNumber;
+                else if (lData.colorIndex !== undefined)  hTableLayerColorNum = lData.colorIndex;
+                else if (lData.color !== undefined)       hTableLayerColorNum = lData.color;
+                else if (lData.trueColor)                 hTableLayerColorNum = `#${lData.trueColor.toString(16).padStart(6, '0')}`;
             }
 
-            const hColor = (typeof hColorNum === 'string' && hColorNum.startsWith('#'))
-                ? hColorNum
-                : getEntityColor(hColorNum);
+            // Step 2: Get the entity's own color (same logic as entityColorNum above)
+            let hEntityColorNum = hEntity.colorIndex; // from code 62 in parseHatchEntities
+            if (hEntity.trueColor) {
+                hEntityColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
+            }
+            // Apply ByLayer / ByBlock inheritance (same condition as main loop)
+            if (hEntityColorNum === 256 || hEntityColorNum === undefined || hEntityColorNum === null || hEntityColorNum === 0) {
+                hEntityColorNum = hTableLayerColorNum;
+            }
+
+            const hColor = getEntityColor(hEntityColorNum);
 
             // Ensure the layer exists in layersData
             if (!layersData[hLayerName]) {
