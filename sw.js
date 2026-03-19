@@ -1,4 +1,4 @@
-const CACHE_NAME = 'planos-dxf-edc-v6';
+const CACHE_NAME = 'planos-dxf-edc-v7';
 const TILE_CACHE_NAME = 'planos-tiles-v1';
 
 const ASSETS = [

@@ -1023,19 +1023,30 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             if (hEntity.trueColor) {
                 hColorNum = `#${hEntity.trueColor.toString(16).padStart(6, '0')}`;
             } else if (hColorNum === 256 || hColorNum === 0) {
-                // Priority 1: Inherit from LAYER table (colorIndex is ACI, NOT .color which is a pre-computed int)
-                if (tableLayers && tableLayers[hLayerName]) {
-                    const lData = tableLayers[hLayerName];
-                    hColorNum = (lData.colorNumber !== undefined) ? lData.colorNumber
-                              : (lData.colorIndex !== undefined) ? lData.colorIndex
-                              : 7;
+                // Try every possible source of layer color
+
+                // 1) LAYER table colorIndex (ACI)
+                const lData = tableLayers && tableLayers[hLayerName];
+                if (lData && lData.colorIndex !== undefined && lData.colorIndex !== 0) {
+                    hColorNum = lData.colorIndex;
                 }
-                // Priority 2: If not found in layer table, use the color already established
-                // by other entities on the same layer (lines, text, etc.)
+                // 2) LAYER table colorNumber
+                else if (lData && lData.colorNumber !== undefined && lData.colorNumber !== 0) {
+                    hColorNum = lData.colorNumber;
+                }
+                // 3) color already stored in layersData (hex string from prior entities)
                 else if (layersData[hLayerName] && layersData[hLayerName].color) {
-                    hColorNum = layersData[hLayerName].color; // This is already a hex string
+                    hColorNum = layersData[hLayerName].color;
+                }
+                // 4) pick _featureColor from first existing feature on that layer
+                else if (layersData[hLayerName] && layersData[hLayerName].features.length > 0) {
+                    hColorNum = layersData[hLayerName].features[0]._featureColor || 7;
+                }
+                else {
+                    hColorNum = 7; // fallback black/white contrast
                 }
             }
+
             const hColor = (typeof hColorNum === 'string' && hColorNum.startsWith('#'))
                 ? hColorNum
                 : getEntityColor(hColorNum);
