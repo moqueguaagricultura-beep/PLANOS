@@ -719,9 +719,9 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
                 if (textStr) {
                     // AutoCAD MTEXT Regex cleaner - eliminates fonts, color codes (\C), text heights (\H), formatting overrides
-                    textStr = textStr.replace(/\\[A-Za-z0-9~\-]+(;|\b)/g, '')
-                        .replace(/\\P/g, '<br>')
-                        .replace(/[{}]/g, '')
+                    textStr = textStr.replace(/\\[^;]+;/g, '') // Remove complex codes like \fArial|b0;
+                        .replace(/\\[A-Z]/g, '')            // Remove simple codes like \P, \L
+                        .replace(/[{}]/g, '')               // Remove grouping braces
                         .trim();
 
                     if (textStr !== '') {
@@ -738,6 +738,39 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         });
                         geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation };
                     }
+                }
+            }
+        }
+        else if (entity.type === 'HATCH') {
+            // Process basic HATCH boundaries (no complex patterns yet)
+            if (entity.loops && entity.loops.length > 0) {
+                const polygons = [];
+                entity.loops.forEach(loop => {
+                    let loopPoints = [];
+                    if (loop.polyline) {
+                        loopPoints = loop.polyline.map(v => convertPoint(v.x, v.y));
+                    } else if (loop.edges) {
+                        loop.edges.forEach(edge => {
+                            if (edge.type === 1 && edge.vertices) { // Line edge
+                                edge.vertices.forEach(v => loopPoints.push(convertPoint(v.x, v.y)));
+                            }
+                            // Arcs (type 2) are harder, but we can sample them if needed. 
+                            // For standard cadastral plans, lines/polylines are most common.
+                        });
+                    }
+                    if (loopPoints.length > 2) polygons.push(loopPoints);
+                });
+
+                if (polygons.length > 0) {
+                    isPolygon = true;
+                    // Draw with a semi-transparent fill to represent the hatch
+                    geom = L.polygon(polygons, {
+                        fillColor: featureColor,
+                        fillOpacity: 0.3,
+                        weight: 1,
+                        color: featureColor
+                    });
+                    geom._isHatch = true;
                 }
             }
         }
@@ -841,11 +874,12 @@ function renderPlanAndLayersMap() {
                         }));
                     } else if (feat.setStyle) {
                         const customCol = activeLayersRegistry[layerName].customColor || feat._featureColor;
-                        // Draw clean solid boundary lines (no inner fill)
+                        // Draw clean solid boundary lines (no inner fill) unless it is a HATCH
                         feat.setStyle({
                             color: customCol,
-                            weight: 2,
-                            fillOpacity: 0
+                            fillColor: customCol,
+                            weight: feat._isHatch ? 1 : 2,
+                            fillOpacity: feat._isHatch ? 0.3 : 0
                         });
                     }
 
