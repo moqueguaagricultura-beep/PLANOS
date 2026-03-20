@@ -594,7 +594,7 @@ function parseHatchEntities(rawDxf, tableLayers) {
         i += 2;
 
         if (code === 0 && val === 'HATCH') {
-            const entity = { type: 'HATCH', layer: '0', colorIndex: 7, loops: [] };
+            const entity = { type: 'HATCH', layer: '0', colorIndex: 256, loops: [] };
             let numLoops = 0;
             let loopsRead = 0;
 
@@ -775,8 +775,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
         // --- 1. RESOLVE LAYER DEFAULT COLOR ---
         let tableLayerColorNum = 7; // Default White/Black Contrast
-        if (tableLayers && tableLayers[layerName]) {
-            const lData = tableLayers[layerName];
+        if (tableLayers && (tableLayers[layerName] || tableLayers[layerName.toUpperCase()])) {
+            const lData = tableLayers[layerName] || tableLayers[layerName.toUpperCase()];
             // Check standard ACI index properties
             if (lData.colorNumber !== undefined) tableLayerColorNum = lData.colorNumber;
             else if (lData.colorIndex !== undefined) tableLayerColorNum = lData.colorIndex;
@@ -1020,7 +1020,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             // --- Resolve HATCH color exactly like the main entity loop ---
             // Step 1: Get the layer's default color (same logic as tableLayerColorNum above)
             let hTableLayerColorNum = 7;
-            const hLayerTableData = tableLayers && tableLayers[hLayerName];
+            const hLayerTableData = tableLayers && (tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()]);
             if (hLayerTableData) {
                 if (hLayerTableData.colorNumber !== undefined)      hTableLayerColorNum = hLayerTableData.colorNumber;
                 else if (hLayerTableData.colorIndex !== undefined)  hTableLayerColorNum = hLayerTableData.colorIndex;
@@ -1051,8 +1051,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             if (!layersData[hLayerName]) {
                 const lConfig = savedConfig?.layersConfig?.[hLayerName];
                 let tableColorNum = 7;
-                if (tableLayers && tableLayers[hLayerName]) {
-                    const lData = tableLayers[hLayerName];
+                if (tableLayers && (tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()])) {
+                    const lData = tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()];
                     tableColorNum = (lData.colorNumber !== undefined) ? lData.colorNumber
                                   : (lData.colorIndex !== undefined) ? lData.colorIndex
                                   : 7;
