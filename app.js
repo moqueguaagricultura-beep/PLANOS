@@ -53,11 +53,10 @@ const basemaps = {
         attribution: '&copy; OpenStreetMap &copy; CARTO',
         maxZoom: 26, maxNativeZoom: 18
     }),
-    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-        attribution: 'Tiles &copy; Esri',
-        // In rural areas, Esri lacks zoom 18+ and returns a gray picture saying "Map Data Not Available" (HTTP 200)
-        // Capping maxNativeZoom to 17 stops Leaflet from asking for those gray pictures and stretches the last good photo instead.
-        maxZoom: 26, maxNativeZoom: 17
+    satellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        // Google Satellite has much better detail (zoom 20+) in Moquegua
+        maxZoom: 26, maxNativeZoom: 20
     }),
     history2020: L.tileLayer('https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/29260/{z}/{y}/{x}', {
         attribution: 'Esri Wayback (Dec 2020)',
