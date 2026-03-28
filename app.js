@@ -929,8 +929,13 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                     if (textStr !== '') {
                         isText = true;
                         const textHeight = entity.textHeight || 0.2;
-                        const rotation = entity.rotation || 0;
                         const isMText = entity.type === 'MTEXT';
+                        
+                        // Robust Rotation: Check .rotation and fallback to xAxisVector for MTEXT
+                        let rotation = entity.rotation || 0;
+                        if (isMText && rotation === 0 && entity.xAxisVector) {
+                            rotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+                        }
 
                         // Calculate initial size
                         const zoom = map.getZoom();
@@ -947,13 +952,15 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                                     font-family: 'Inter', sans-serif; 
                                                     font-weight: 600;
                                                     font-size: ${pxSize}px; 
-                                                    transform: rotate(${-rotation}deg); 
+                                                    /* Use !important to prevent overrides during dynamic sizing */
+                                                    transform: rotate(${-rotation}deg) !important; 
                                                     display: inline-block; 
                                                     white-space: nowrap;
                                                     transform-origin: ${isMText ? 'top left' : 'bottom left'};">
                                             ${textStr}
                                        </span>`,
-                                iconSize: null
+                                iconSize: [0, 0],
+                                iconAnchor: [0, 0]
                             })
                         });
                         geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
@@ -1172,13 +1179,14 @@ function refreshAllPlansStyling() {
                                             font-family: 'Inter', sans-serif; 
                                             font-weight: 600;
                                             font-size: ${pxSize}px; 
-                                            transform: rotate(${-feat._textOptions.rotation}deg); 
+                                            transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                             display: inline-block; 
                                             white-space: nowrap;
                                             transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
                                     ${feat._textOptions.text}
                                </span>`,
-                        iconSize: null
+                        iconSize: [0, 0],
+                        iconAnchor: [0, 0]
                     }));
                 } else if (feat instanceof L.CircleMarker && !feat._isPolygon) {
                     // For POINT entities (rendered as circleMarker but not the polygon radius Circle)
@@ -1232,13 +1240,14 @@ function renderPlanAndLayersMap() {
                                                 font-family: 'Inter', sans-serif; 
                                                 font-weight: 600;
                                                 font-size: ${pxSize}px; 
-                                                transform: rotate(${-feat._textOptions.rotation}deg); 
+                                                transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                                 display: inline-block; 
                                                 white-space: nowrap;
                                                 transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
                                         ${feat._textOptions.text}
                                    </span>`,
-                            iconSize: null
+                            iconSize: [0, 0],
+                            iconAnchor: [0, 0]
                         }));
                     } else if (feat.setStyle) {
                         const customCol = activeLayersRegistry[layerName].customColor || feat._featureColor;
