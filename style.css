@@ -401,16 +401,32 @@ input:checked + .slider:before {
 
 /* DXF Texts */
 .dxf-text {
-    font-size: 14px;
-    font-weight: bold;
     color: inherit;
-    text-shadow: 1px 1px 0 #FFF, -1px -1px 0 #FFF, 1px -1px 0 #FFF, -1px 1px 0 #FFF;
-    white-space: nowrap;
     pointer-events: none;
-    transform: translate(-50%, -50%);
+    background: none !important;
+    border: none !important;
+    /* We remove the translate -50% to allow span's transform-origin to work correctly 
+       relative to the insertion point coordinate */
 }
-.dxf-text.satellite-shadow {
-    text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
+
+/* Base text shadow for light maps */
+.dxf-text-span {
+    text-shadow: 
+        1px 1px 0px rgba(255,255,255,0.8), 
+       -1px -1px 0px rgba(255,255,255,0.8), 
+        1px -1px 0px rgba(255,255,255,0.8), 
+       -1px 1px 0px rgba(255,255,255,0.8);
+    line-height: 1;
+}
+
+/* Enhanced shadow for satellite imagery */
+.satellite-shadow .dxf-text-span {
+    text-shadow: 
+        1px 1px 2px #000, 
+       -1px -1px 2px #000, 
+        1px -1px 2px #000, 
+       -1px 1px 2px #000,
+        0 0 5px rgba(0,0,0,0.5);
 }
 
 /* Semantic Zoom Utility */

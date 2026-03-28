@@ -38,15 +38,34 @@ proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_de
 const map = L.map('map', { zoomControl: false, maxZoom: 26 }).setView([-17.195, -70.936], 9);
 map.attributionControl.setPrefix('EDWIN DIAZ CAMACHO');
 
-// Semantic Zooming: Hide text annotations if map is zoomed out too far to prevent clutter
+// Semantic Zooming & Dynamic Text Scaling
 map.on('zoomend', function () {
+    // 1. Semantic Hiding (prevents clutter)
     if (map.getZoom() < 17) {
         document.body.classList.add('hide-dxf-texts');
     } else {
         document.body.classList.remove('hide-dxf-texts');
     }
+
+    // 2. Dynamic Scaling of DXF Text sizes to maintain proportions relative to map
+    refreshAllTextsScale();
 });
 if (map.getZoom() < 17) document.body.classList.add('hide-dxf-texts');
+
+function refreshAllTextsScale() {
+    const zoom = map.getZoom();
+    const lat = map.getCenter().lat;
+    // Meters per pixel approximation for current zoom
+    const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
+    
+    document.querySelectorAll('.dxf-text-span').forEach(span => {
+        const heightMeters = parseFloat(span.dataset.height) || 0.2;
+        // Calculate px size: height / metersPerPixel
+        // We add a slight boost factor (1.2) because digital text often looks smaller than vector lines
+        const pxSize = (heightMeters / metersPerPixel) * 1.1;
+        span.style.fontSize = `${pxSize}px`;
+    });
+}
 
 const basemaps = {
     light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
@@ -909,17 +928,35 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
                     if (textStr !== '') {
                         isText = true;
-                        const textHeight = entity.textHeight || 12;
+                        const textHeight = entity.textHeight || 0.2;
                         const rotation = entity.rotation || 0;
+                        const isMText = entity.type === 'MTEXT';
+
+                        // Calculate initial size
+                        const zoom = map.getZoom();
+                        const lat = pt[0];
+                        const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
+                        const pxSize = (textHeight / metersPerPixel) * 1.1;
 
                         geom = L.marker(pt, {
                             icon: L.divIcon({
                                 className: `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`,
-                                html: `<span style="color: ${featureColor}; font-family: sans-serif; font-size: ${Math.max(10, textHeight * 2.5)}px; transform: rotate(${-rotation}deg); display: inline-block; transform-origin: left center;">${textStr}</span>`,
+                                html: `<span class="dxf-text-span" 
+                                             data-height="${textHeight}"
+                                             style="color: ${featureColor}; 
+                                                    font-family: 'Inter', sans-serif; 
+                                                    font-weight: 600;
+                                                    font-size: ${pxSize}px; 
+                                                    transform: rotate(${-rotation}deg); 
+                                                    display: inline-block; 
+                                                    white-space: nowrap;
+                                                    transform-origin: ${isMText ? 'top left' : 'bottom left'};">
+                                            ${textStr}
+                                       </span>`,
                                 iconSize: null
                             })
                         });
-                        geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation };
+                        geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
                     }
                 }
             }
@@ -1121,9 +1158,26 @@ function refreshAllPlansStyling() {
                 if (feat._isText) {
                     const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
                     const customCol = lData.customColor || getEntityColor(feat._textOptions.colorNumber);
+                    
+                    const zoom = map.getZoom();
+                    const lat = feat.getLatLng().lat;
+                    const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
+                    const pxSize = (feat._textOptions.textHeight / metersPerPixel) * 1.1;
+
                     feat.setIcon(L.divIcon({
                         className: cName,
-                        html: `<span style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; font-family: sans-serif; font-size: ${Math.max(10, feat._textOptions.textHeight * 2.5)}px; transform: rotate(${-feat._textOptions.rotation}deg); display: inline-block; transform-origin: left center;">${feat._textOptions.text}</span>`,
+                        html: `<span class="dxf-text-span" 
+                                     data-height="${feat._textOptions.textHeight}"
+                                     style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; 
+                                            font-family: 'Inter', sans-serif; 
+                                            font-weight: 600;
+                                            font-size: ${pxSize}px; 
+                                            transform: rotate(${-feat._textOptions.rotation}deg); 
+                                            display: inline-block; 
+                                            white-space: nowrap;
+                                            transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
+                                    ${feat._textOptions.text}
+                               </span>`,
                         iconSize: null
                     }));
                 } else if (feat instanceof L.CircleMarker && !feat._isPolygon) {
@@ -1164,9 +1218,26 @@ function renderPlanAndLayersMap() {
                     if (feat._isText) {
                         const customCol = activeLayersRegistry[layerName].customColor || getEntityColor(feat._textOptions.colorNumber);
                         const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
+                        
+                        const zoom = map.getZoom();
+                        const lat = feat.getLatLng().lat;
+                        const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
+                        const pxSize = (feat._textOptions.textHeight / metersPerPixel) * 1.1;
+
                         feat.setIcon(L.divIcon({
                             className: cName,
-                            html: `<span style="color: ${customCol}; font-family: sans-serif; font-size: ${Math.max(10, feat._textOptions.textHeight * 2.5)}px; transform: rotate(${-feat._textOptions.rotation}deg); display: inline-block; transform-origin: left center;">${feat._textOptions.text}</span>`,
+                            html: `<span class="dxf-text-span" 
+                                         data-height="${feat._textOptions.textHeight}"
+                                         style="color: ${customCol}; 
+                                                font-family: 'Inter', sans-serif; 
+                                                font-weight: 600;
+                                                font-size: ${pxSize}px; 
+                                                transform: rotate(${-feat._textOptions.rotation}deg); 
+                                                display: inline-block; 
+                                                white-space: nowrap;
+                                                transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
+                                        ${feat._textOptions.text}
+                                   </span>`,
                             iconSize: null
                         }));
                     } else if (feat.setStyle) {
