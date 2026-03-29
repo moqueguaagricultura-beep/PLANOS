@@ -77,21 +77,31 @@ function getEntityRotation(entity) {
     let rot = 0;
     const isMText = entity.type === 'MTEXT';
     
-    // Check all possible DXF property names for rotation
-    if (typeof entity.rotation === 'number') rot = entity.rotation;
-    else if (typeof entity.rotationAngle === 'number') rot = entity.rotationAngle;
-    else if (typeof entity.angle === 'number') rot = entity.angle;
-    
-    // MTEXT priority direction vector
-    if (isMText && entity.xAxisVector) {
-        const vRot = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
-        if (Math.abs(rot) < 0.01 && Math.abs(vRot) > 0.01) rot = vRot;
+    // Check standard properties
+    const propKeys = ['rotation', 'rotationAngle', 'angle', 'ang'];
+    for (const key of propKeys) {
+        if (typeof entity[key] === 'number') {
+            rot = entity[key];
+            if (Math.abs(rot) > 0.0001) break;
+        }
     }
     
-    // Spec detection: MTEXT (code 50) is often in RADIANS, TEXT (code 50) is in DEGREES
+    // MTEXT priority direction vector
+    // For MTEXT, the direction vector (code 11/21/31) is the primary orientation if present
+    if (isMText && entity.xAxisVector) {
+        const vRot = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+        // If vRot is non-zero, it usually overrides the rotation property in MTEXT
+        if (Math.abs(vRot) > 0.001) rot = vRot;
+    }
+    
+    // Radians to Degrees detection (Strictly for MTEXT code 50)
+    // Most DXF parsers return degrees for TEXT but radians for MTEXT
     if (isMText && Math.abs(rot) > 0.0001 && Math.abs(rot) < 6.283185) {
         rot = rot * (180 / Math.PI);
     }
+    
+    // Handle OCS (Object Coordinate System) if Normal is not {0,0,1}
+    // (Future: Arbitrary Axis Algorithm implementation if needed)
     
     return rot;
 }
@@ -986,8 +996,18 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                 iconSize: [0, 0], iconAnchor: [0, 0]
                             })
                         });
+                        
+                        // Debug: find any other numeric properties that might be angles
+                        let debugParams = "";
+                        Object.keys(entity).forEach(k => {
+                            if (typeof entity[k] === 'number' && Math.abs(entity[k]) > 0.0001 && k !== 'x' && k !== 'y' && k !== 'z' && k !== 'textHeight' && k !== 'columnWidth') {
+                                debugParams += `<br><b>${k}:</b> ${entity[k].toFixed(4)}`;
+                            }
+                        });
+                        if (entity.xAxisVector) debugParams += `<br><b>vX:</b> ${entity.xAxisVector.x.toFixed(4)}, ${entity.xAxisVector.y.toFixed(4)}`;
+
                         geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
-                        geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary);">Información de Texto</p><p><b>Capa:</b> ${layerName}</p><p><b>Texto:</b> ${textStr}</p><p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p><p><b>Altura:</b> ${textHeight.toFixed(2)}m</p><p><b>Angulo:</b> ${rotation.toFixed(2)}°</p></div>`);
+                        geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary);">Información de Texto</p><p><b>Capa:</b> ${layerName}</p><p><b>Texto:</b> ${textStr}</p><p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p><p><b>Angulo Final:</b> ${rotation.toFixed(2)}°</p><p style="color:#6b7280; font-size:0.9em; border-top:1px solid #eee; padding-top:4px;"><b>DEBUG:</b>${debugParams}</p></div>`);
                     }
                 }
             }
