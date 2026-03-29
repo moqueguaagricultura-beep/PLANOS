@@ -805,7 +805,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
     let bounds = L.latLngBounds();
     let hasGeoms = false;
-    let layersData = {}; // Internal registry for this specific plan
+    const activeLayersData = {}; // Internal registry for this specific plan
 
     const tableLayers = dxf.tables?.layer?.layers || {};
 
@@ -817,40 +817,33 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         return latlng;
     };
 
-    dxf.entities.forEach(entity => {
+    function processLayerEntity(entity, parentTransform = null) {
         const layerName = entity.layer || "Default";
 
         // --- 1. RESOLVE LAYER DEFAULT COLOR ---
-        let tableLayerColorNum = 7; // Default White/Black Contrast
-        if (tableLayers && (tableLayers[layerName] || tableLayers[layerName.toUpperCase()])) {
-            const lData = tableLayers[layerName] || tableLayers[layerName.toUpperCase()];
-            // Check standard ACI index properties
-            if (lData.colorNumber !== undefined) tableLayerColorNum = lData.colorNumber;
-            else if (lData.colorIndex !== undefined) tableLayerColorNum = lData.colorIndex;
-            else if (lData.color !== undefined) tableLayerColorNum = lData.color;
-            // Support DXF TrueColor in Layer (24-bit RGB)
-            else if (lData.trueColor) tableLayerColorNum = `#${lData.trueColor.toString(16).padStart(6, '0')}`;
+        let tableLayerColorNum = 7;
+        const lTableData = tableLayers[layerName] || tableLayers[layerName.toUpperCase()];
+        if (lTableData) {
+            if (lTableData.colorNumber !== undefined) tableLayerColorNum = lTableData.colorNumber;
+            else if (lTableData.colorIndex !== undefined) tableLayerColorNum = lTableData.colorIndex;
+            else if (lTableData.color !== undefined) tableLayerColorNum = lTableData.color;
+            else if (lTableData.trueColor) tableLayerColorNum = `#${lTableData.trueColor.toString(16).padStart(6, '0')}`;
         }
 
         // --- 2. RESOLVE ENTITY OVERRIDE COLOR ---
-        let entityColorNum = entity.colorNumber;
-        if (entityColorNum === undefined) entityColorNum = entity.colorIndex; // Support missing colorIndex variant!
-        if (entityColorNum === undefined) entityColorNum = entity.color;
-
-        // Check for direct TrueColor (RGB) string override on the entity itself
+        let entityColorNum = entity.colorNumber ?? entity.colorIndex ?? entity.color;
         if (entity.trueColor) {
             entityColorNum = `#${entity.trueColor.toString(16).padStart(6, '0')}`;
         }
-
+        
         // --- 3. APPLY LAYER INHERITANCE ---
-        // Apply Layer Fallback. "ByLayer" (256) or unassigned properties default to the Layer table object definition
         if (entityColorNum === 256 || entityColorNum === undefined || entityColorNum === null || entityColorNum === 0) {
             entityColorNum = tableLayerColorNum;
         }
 
-        if (!layersData[layerName]) {
+        if (!activeLayersData[layerName]) {
             const lConfig = savedConfig?.layersConfig?.[layerName];
-            layersData[layerName] = {
+            activeLayersData[layerName] = {
                 color: getEntityColor(tableLayerColorNum),
                 customColor: lConfig?.customColor || null,
                 visible: lConfig !== undefined ? lConfig.visible : true,
@@ -863,17 +856,51 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         let isText = false;
         let isPolygon = false;
 
+        // --- Geometric Transformation Helper ---
+        function transformXy(x, y) {
+            if (!parentTransform) return { x, y };
+            const rad = (parentTransform.rotation || 0) * (Math.PI / 180);
+            const sx = x * (parentTransform.scaleX || 1);
+            const sy = y * (parentTransform.scaleY || 1);
+            
+            // Vector rotation (CCW)
+            const rx = sx * Math.cos(rad) - sy * Math.sin(rad);
+            const ry = sx * Math.sin(rad) + sy * Math.cos(rad);
+            
+            return {
+                x: parentTransform.x + rx,
+                y: parentTransform.y + ry
+            };
+        }
+
+        if (entity.type === 'INSERT') {
+            const block = dxf.blocks[entity.name];
+            if (block && block.entities) {
+                const newTransform = {
+                    x: entity.position?.x ?? entity.x,
+                    y: entity.position?.y ?? entity.y,
+                    rotation: (parentTransform?.rotation || 0) + (entity.rotation || 0),
+                    scaleX: (parentTransform?.scaleX || 1) * (entity.scaleX || 1),
+                    scaleY: (parentTransform?.scaleY || 1) * (entity.scaleY || 1)
+                };
+                block.entities.forEach(child => processLayerEntity(child, newTransform));
+            }
+            return; // Finished processing block
+        }
+
         if (entity.type === 'LINE') {
-            const p1 = convertPoint(entity.vertices[0].x, entity.vertices[0].y);
-            const p2 = convertPoint(entity.vertices[1].x, entity.vertices[1].y);
+            const p1xy = transformXy(entity.vertices[0].x, entity.vertices[0].y);
+            const p2xy = transformXy(entity.vertices[1].x, entity.vertices[1].y);
+            const p1 = convertPoint(p1xy.x, p1xy.y);
+            const p2 = convertPoint(p2xy.x, p2xy.y);
             geom = L.polyline([p1, p2]);
         }
         else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
-            const points = entity.vertices.map(v => convertPoint(v.x, v.y));
-            // Always treat polylines as lines to avoid the "grey blob" effect on maps
+            const points = entity.vertices.map(v => {
+                const tr = transformXy(v.x, v.y);
+                return convertPoint(tr.x, tr.y);
+            });
             let isClosedPoly = entity.shape || entity.closed;
-
-            // Check implicitly closed
             if (!isClosedPoly && entity.vertices.length > 2) {
                 const first = entity.vertices[0];
                 const last = entity.vertices[entity.vertices.length - 1];
@@ -884,59 +911,39 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
             if (isClosedPoly) {
                 isPolygon = true;
-                geom = L.polygon(points, { fillOpacity: 0 }); // Use L.polygon for area shapes
+                geom = L.polygon(points, { fillOpacity: 0 });
             } else {
                 geom = L.polyline(points);
             }
 
             if (isPolygon) {
-                const areaM2 = calculatePlanarArea(entity.vertices);
+                const areaM2 = calculatePlanarArea(entity.vertices) * (parentTransform?.scaleX || 1) * (parentTransform?.scaleY || 1);
                 if (areaM2 > 0) {
                     const areaHa = areaM2 / 10000;
                     geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Polígono</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha</span></div>`);
-
-                    // Highlight on selection
-                    geom.on('popupopen', function () {
-                        this.setStyle({ fillOpacity: 0.3 });
-                    });
-                    geom.on('popupclose', function () {
-                        this.setStyle({ fillOpacity: 0 });
-                    });
+                    geom.on('popupopen', function () { this.setStyle({ fillOpacity: 0.3 }); });
+                    geom.on('popupclose', function () { this.setStyle({ fillOpacity: 0 }); });
                 }
             }
         }
         else if (entity.type === 'CIRCLE') {
-            const center = convertPoint(entity.center.x, entity.center.y);
-            geom = L.circle(center, { radius: entity.radius, fillOpacity: 0 });
+            const tr = transformXy(entity.center.x, entity.center.y);
+            const center = convertPoint(tr.x, tr.y);
+            const radius = entity.radius * Math.max(parentTransform?.scaleX || 1, parentTransform?.scaleY || 1);
+            geom = L.circle(center, { radius: radius, fillOpacity: 0 });
             isPolygon = true;
-
-            const areaM2 = Math.PI * Math.pow(entity.radius, 2);
-            const areaHa = areaM2 / 10000;
-            geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Círculo</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha</span></div>`);
-
-            // Highlight on selection
-            geom.on('popupopen', function () {
-                this.setStyle({ fillOpacity: 0.3 });
-            });
-            geom.on('popupclose', function () {
-                this.setStyle({ fillOpacity: 0 });
-            });
+            const areaM2 = Math.PI * Math.pow(radius, 2);
+            geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Círculo</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b></div>`);
+            geom.on('popupopen', function () { this.setStyle({ fillOpacity: 0.3 }); });
+            geom.on('popupclose', function () { this.setStyle({ fillOpacity: 0 }); });
         }
         else if (entity.type === 'POINT') {
             const ptX = entity.position?.x ?? entity.x;
             const ptY = entity.position?.y ?? entity.y;
-
             if (ptX !== undefined && ptY !== undefined && !isNaN(ptX)) {
-                const pt = convertPoint(ptX, ptY);
-                // Create a small circle marker for the point
-                geom = L.circleMarker(pt, {
-                    radius: 3,
-                    stroke: true,
-                    weight: 1,
-                    opacity: 1,
-                    fill: true,
-                    fillOpacity: 0.8
-                });
+                const tr = transformXy(ptX, ptY);
+                const pt = convertPoint(tr.x, tr.y);
+                geom = L.circleMarker(pt, { radius: 3, weight: 1, opacity: 1, fill: true, fillOpacity: 0.8 });
             }
         }
         else if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
@@ -944,24 +951,21 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             const ptY = entity.startPoint?.y ?? entity.position?.y ?? entity.insertionPoint?.y ?? entity.y;
 
             if (ptX !== undefined && ptY !== undefined && !isNaN(ptX)) {
-                const pt = convertPoint(ptX, ptY);
-                // Extract string robustly - MTEXT uses .text, text uses .string, some DXF specs use .value
+                const tr = transformXy(ptX, ptY);
+                const pt = convertPoint(tr.x, tr.y);
                 let textStr = entity.text || entity.string || entity.value || "";
 
                 if (textStr) {
-                    // AutoCAD MTEXT Regex cleaner - eliminates fonts, color codes (\C), text heights (\H), formatting overrides
-                    textStr = textStr.replace(/\\[^;]+;/g, '') // Remove complex codes like \fArial|b0;
-                        .replace(/\\[A-Z]/g, '')            // Remove simple codes like \P, \L
-                        .replace(/[{}]/g, '')               // Remove grouping braces
-                        .trim();
+                    textStr = textStr.replace(/\\[^;]+;/g, '').replace(/\\[A-Z]/g, '').replace(/[{}]/g, '').trim();
 
                     if (textStr !== '') {
                         isText = true;
-                        const textHeight = entity.textHeight || 0.2;
+                        const textHeight = (entity.textHeight || 0.2) * (parentTransform?.scaleY || 1);
                         const isMText = entity.type === 'MTEXT';
-                        const rotation = getEntityRotation(entity);
+                        
+                        // Cumulative rotation
+                        const rotation = getEntityRotation(entity) + (parentTransform?.rotation || 0);
 
-                        // Calculate initial size
                         const zoom = map.getZoom();
                         const lat = pt[0];
                         const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
@@ -974,120 +978,33 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                              data-height="${textHeight}"
                                              data-rotation="${rotation}"
                                              data-ismtext="${isMText ? '1' : '0'}"
-                                             style="color: ${featureColor}; 
-                                                    font-family: 'Inter', sans-serif; 
-                                                    font-weight: 600;
-                                                    font-size: ${pxSize}px; 
-                                                    transform: rotate(${-rotation}deg) !important; 
-                                                    display: inline-block; 
-                                                    white-space: nowrap;
+                                             style="color: ${featureColor}; font-family: 'Inter', sans-serif; font-weight: 600; font-size: ${pxSize}px; 
+                                                    transform: rotate(${-rotation}deg) !important; display: inline-block; white-space: nowrap; 
                                                     transform-origin: ${isMText ? '0 0' : '0 100%'};">
                                             ${textStr}
                                        </span>`,
-                                iconSize: [0, 0],
-                                iconAnchor: [0, 0]
+                                iconSize: [0, 0], iconAnchor: [0, 0]
                             })
                         });
                         geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
-                        
-                        geom.bindPopup(`
-                            <div style="font-family: 'Inter', sans-serif;">
-                                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">Información de Texto</p>
-                                <p><b>Capa:</b> ${layerName}</p>
-                                <p><b>Texto:</b> ${textStr}</p>
-                                <p><b>Tipo:</b> ${entity.type}</p>
-                                <p><b>Altura:</b> ${textHeight.toFixed(2)}m</p>
-                                <p><b>Angulo:</b> ${rotation.toFixed(2)}°</p>
-                            </div>
-                        `);
+                        geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary);">Información de Texto</p><p><b>Capa:</b> ${layerName}</p><p><b>Texto:</b> ${textStr}</p><p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p><p><b>Altura:</b> ${textHeight.toFixed(2)}m</p><p><b>Angulo:</b> ${rotation.toFixed(2)}°</p></div>`);
                     }
                 }
-            }
-        }
-        else if (entity.type === 'HATCH' || entity.type === 'MPOLYGON') {
-            const loops = entity.loops || (entity.vertices ? [{ polyline: entity.vertices, closed: true }] : []); 
-            if (loops.length > 0) {
-                const polygons = [];
-                loops.forEach(loop => {
-                    let loopPoints = [];
-                    if (loop.polyline) {
-                        loopPoints = loop.polyline.map(v => convertPoint(v.x, v.y));
-                    } else if (loop.edges) {
-                        loop.edges.forEach(edge => {
-                            if (edge.type === 1) { // Line
-                                const start = edge.start || (edge.vertices ? edge.vertices[0] : null);
-                                const end = edge.end || (edge.vertices ? edge.vertices[1] : null);
-                                if (start) loopPoints.push(convertPoint(start.x, start.y));
-                                if (end) loopPoints.push(convertPoint(end.x, end.y));
-                            } else if (edge.type === 2) { // Arc
-                                const center = edge.center;
-                                const radius = edge.radius;
-                                const startAngle = edge.startAngle;
-                                const endAngle = edge.endAngle;
-                                const isCCW = edge.isCounterClockwise;
-                                const steps = 12;
-                                let diff = endAngle - startAngle;
-                                if (isCCW && diff < 0) diff += 360;
-                                if (!isCCW && diff > 0) diff -= 360;
-                                for (let i = 0; i <= steps; i++) {
-                                    const ang = startAngle + (diff * i / steps);
-                                    const rad = ang * Math.PI / 180;
-                                    loopPoints.push(convertPoint(center.x + radius * Math.cos(rad), center.y + radius * Math.sin(rad)));
-                                }
-                            }
-                        });
-                    }
-                    if (loopPoints.length > 2) polygons.push(loopPoints);
-                });
-
-                if (polygons.length > 0) {
-                    isPolygon = true;
-                    geom = L.polygon(polygons, {
-                        fillColor: featureColor,
-                        fillOpacity: 0.6,
-                        weight: 2,
-                        color: featureColor,
-                        opacity: 1
-                    });
-                    geom._isHatch = true;
-                }
-            }
-        }
-        else if (entity.type === 'SOLID' || entity.type === 'TRACE') {
-            const pts = entity.points || entity.vertices || [];
-            if (pts.length >= 3) {
-                const p1 = convertPoint(pts[0].x, pts[0].y);
-                const p2 = convertPoint(pts[1].x, pts[1].y);
-                const p3 = convertPoint(pts[2].x, pts[2].y);
-                const p4 = pts[3] ? convertPoint(pts[3].x, pts[3].y) : p3;
-                geom = L.polygon([p1, p2, p4, p3], {
-                    fillColor: featureColor,
-                    fillOpacity: 0.6,
-                    weight: 2,
-                    color: featureColor,
-                    opacity: 1
-                });
-                isPolygon = true;
-                geom._isHatch = true;
             }
         }
 
         if (geom) {
+            geom.setStyle?.({ color: featureColor, weight: 1.5, opacity: 0.8 });
+            geom._featureColor = featureColor;
             geom._isText = isText;
             geom._isPolygon = isPolygon;
-            geom._featureColor = featureColor;
-
-            // Prioritize measurement clicks when active
-            geom.on('click', (e) => {
-                if (isMeasuring) {
-                    L.DomEvent.stopPropagation(e);
-                    addMeasurementPoint(e.latlng);
-                }
-            });
-
-            layersData[layerName].features.push(geom);
+            activeLayersData[layerName].features.push(geom);
+            group.addLayer(geom);
         }
-    });
+    }
+
+    // Start with top-level entities
+    dxf.entities.forEach(entity => processLayerEntity(entity));
 
     // --- HATCH: parsed manually because dxf-parser@1.1.2 does NOT support HATCH ---
     const rawForHatch = rawDxfString || savedConfig?.rawDxf;
@@ -1126,8 +1043,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 window._hatchDebugCount++;
             }
 
-            // Ensure the layer exists in layersData
-            if (!layersData[hLayerName]) {
+            // Ensure the layer exists in activeLayersData
+            if (!activeLayersData[hLayerName]) {
                 const lConfig = savedConfig?.layersConfig?.[hLayerName];
                 let tableColorNum = 7;
                 if (tableLayers && (tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()])) {
@@ -1136,7 +1053,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                   : (lData.colorIndex !== undefined) ? lData.colorIndex
                                   : 7;
                 }
-                layersData[hLayerName] = {
+                activeLayersData[hLayerName] = {
                     color: getEntityColor(tableColorNum),
                     customColor: lConfig?.customColor || null,
                     visible: lConfig !== undefined ? lConfig.visible : true,
@@ -1164,25 +1081,25 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         addMeasurementPoint(e.latlng);
                     }
                 });
-                layersData[hLayerName].features.push(polygon);
+                activeLayersData[hLayerName].features.push(polygon);
             });
         });
     }
 
     if (hasGeoms) {
-        const newPlan = {
+        const activePlansEntry = {
             id: planId,
             name: fileName,
             layerGroup: group,
             bounds: bounds,
-            layersData: layersData,
+            layersData: activeLayersData,
             visible: savedConfig ? savedConfig.visible : true,
             rawDxf: rawDxfString || savedConfig?.rawDxf
         };
-        loadedPlans.push(newPlan);
+        loadedPlans.push(activePlansEntry);
 
         if (!existingId) {
-            savePlanToDB(newPlan);
+            savePlanToDB(activePlansEntry);
             map.fitBounds(bounds, { padding: [50, 50] });
         }
 
