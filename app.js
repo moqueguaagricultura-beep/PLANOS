@@ -77,8 +77,8 @@ function getEntityRotation(entity) {
     let rot = 0;
     const isMText = entity.type === 'MTEXT';
     
-    // Check standard properties
-    const propKeys = ['rotation', 'rotationAngle', 'angle', 'ang'];
+    // 1. Check direct numerical rotation (all possible synonyms)
+    const propKeys = ['rotation', 'rotationAngle', 'angle', 'ang', 'rot', 'r'];
     for (const key of propKeys) {
         if (typeof entity[key] === 'number') {
             rot = entity[key];
@@ -86,22 +86,29 @@ function getEntityRotation(entity) {
         }
     }
     
-    // MTEXT priority direction vector
-    // For MTEXT, the direction vector (code 11/21/31) is the primary orientation if present
-    if (isMText && entity.xAxisVector) {
-        const vRot = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
-        // If vRot is non-zero, it usually overrides the rotation property in MTEXT
+    // 2. Check Direction Vectors (primary for MTEXT)
+    // Check xAxisVector, xAxis, direction, or dir
+    const vec = entity.xAxisVector || entity.xAxis || entity.direction || entity.dir;
+    if (vec && typeof vec.x === 'number' && typeof vec.y === 'number') {
+        const vRot = Math.atan2(vec.y, vec.x) * (180 / Math.PI);
+        // If the vector gives a non-zero rotation, it's usually the intended one
         if (Math.abs(vRot) > 0.001) rot = vRot;
     }
     
-    // Radians to Degrees detection (Strictly for MTEXT code 50)
-    // Most DXF parsers return degrees for TEXT but radians for MTEXT
+    // 3. Coordinate-based rotation (for entities with multiple alignment points)
+    if (Math.abs(rot) < 0.001 && entity.startPoint && entity.endPoint) {
+        const dX = entity.endPoint.x - entity.startPoint.x;
+        const dY = entity.endPoint.y - entity.startPoint.y;
+        if (Math.abs(dX) > 0.001 || Math.abs(dY) > 0.001) {
+            rot = Math.atan2(dY, dX) * (180 / Math.PI);
+        }
+    }
+    
+    // Radians to Degrees detection (Strictly for MTEXT)
+    // If it's MTEXT and it's small (within 2PI), it's likely radians
     if (isMText && Math.abs(rot) > 0.0001 && Math.abs(rot) < 6.283185) {
         rot = rot * (180 / Math.PI);
     }
-    
-    // Handle OCS (Object Coordinate System) if Normal is not {0,0,1}
-    // (Future: Arbitrary Axis Algorithm implementation if needed)
     
     return rot;
 }
@@ -968,47 +975,48 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 if (textStr) {
                     textStr = textStr.replace(/\\[^;]+;/g, '').replace(/\\[A-Z]/g, '').replace(/[{}]/g, '').trim();
 
-                    if (textStr !== '') {
-                        isText = true;
-                        const textHeight = (entity.textHeight || 0.2) * (parentTransform?.scaleY || 1);
-                        const isMText = entity.type === 'MTEXT';
-                        
-                        // Cumulative rotation
-                        const rotation = getEntityRotation(entity) + (parentTransform?.rotation || 0);
+                        if (textStr !== '') {
+                            isText = true;
+                            // Check all aliases for text height
+                            const heightVal = entity.textHeight ?? entity.height ?? entity.h ?? 0.2;
+                            const textHeight = heightVal * (parentTransform?.scaleY || 1);
+                            const isMText = entity.type === 'MTEXT';
+                            const rotation = getEntityRotation(entity) + (parentTransform?.rotation || 0);
+                            const zoom = map.getZoom();
+                            const lat = pt[0];
+                            const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
+                            const pxSize = (textHeight / metersPerPixel) * 1.1;
 
-                        const zoom = map.getZoom();
-                        const lat = pt[0];
-                        const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
-                        const pxSize = (textHeight / metersPerPixel) * 1.1;
+                            geom = L.marker(pt, {
+                                icon: L.divIcon({
+                                    className: `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`,
+                                    html: `<span class="dxf-text-span" 
+                                                 data-height="${textHeight}"
+                                                 data-rotation="${rotation}"
+                                                 data-ismtext="${isMText ? '1' : '0'}"
+                                                 style="color: ${featureColor}; font-family: 'Inter', sans-serif; font-weight: 600; font-size: ${pxSize}px; 
+                                                        transform: rotate(${-rotation}deg) !important; display: inline-block; white-space: nowrap; 
+                                                        transform-origin: ${isMText ? '0 0' : '0 100%'};">
+                                                ${textStr}
+                                           </span>`,
+                                    iconSize: [0, 0], iconAnchor: [0, 0]
+                                })
+                            });
+                            
+                            // Debug: Full object inspection
+                            let debugParams = "";
+                            Object.keys(entity).forEach(k => {
+                                if (typeof entity[k] === 'number') {
+                                    debugParams += `<br><b>${k}:</b> ${entity[k].toFixed(4)}`;
+                                } else if (typeof entity[k] === 'object' && entity[k] !== null) {
+                                    // Flatten vectors or simple objects for debug
+                                    debugParams += `<br><b>${k}:</b> ${JSON.stringify(entity[k])}`;
+                                }
+                            });
 
-                        geom = L.marker(pt, {
-                            icon: L.divIcon({
-                                className: `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`,
-                                html: `<span class="dxf-text-span" 
-                                             data-height="${textHeight}"
-                                             data-rotation="${rotation}"
-                                             data-ismtext="${isMText ? '1' : '0'}"
-                                             style="color: ${featureColor}; font-family: 'Inter', sans-serif; font-weight: 600; font-size: ${pxSize}px; 
-                                                    transform: rotate(${-rotation}deg) !important; display: inline-block; white-space: nowrap; 
-                                                    transform-origin: ${isMText ? '0 0' : '0 100%'};">
-                                            ${textStr}
-                                       </span>`,
-                                iconSize: [0, 0], iconAnchor: [0, 0]
-                            })
-                        });
-                        
-                        // Debug: find any other numeric properties that might be angles
-                        let debugParams = "";
-                        Object.keys(entity).forEach(k => {
-                            if (typeof entity[k] === 'number' && Math.abs(entity[k]) > 0.0001 && k !== 'x' && k !== 'y' && k !== 'z' && k !== 'textHeight' && k !== 'columnWidth') {
-                                debugParams += `<br><b>${k}:</b> ${entity[k].toFixed(4)}`;
-                            }
-                        });
-                        if (entity.xAxisVector) debugParams += `<br><b>vX:</b> ${entity.xAxisVector.x.toFixed(4)}, ${entity.xAxisVector.y.toFixed(4)}`;
-
-                        geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
-                        geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary);">Información de Texto</p><p><b>Capa:</b> ${layerName}</p><p><b>Texto:</b> ${textStr}</p><p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p><p><b>Angulo Final:</b> ${rotation.toFixed(2)}°</p><p style="color:#6b7280; font-size:0.9em; border-top:1px solid #eee; padding-top:4px;"><b>DEBUG:</b>${debugParams}</p></div>`);
-                    }
+                            geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
+                            geom.bindPopup(`<div style="font-family: 'Inter', sans-serif; max-height:300px; overflow-y:auto; font-size:12px;"><p style="font-weight:700; color:var(--primary);">Info Texto</p><b>Texto:</b> ${textStr}<br><b>Angulo Final:</b> ${rotation.toFixed(2)}°<p style="color:#6b7280; border-top:1px solid #eee; padding-top:4px;"><b>DEBUG RAW:</b>${debugParams}</p></div>`);
+                        }
                 }
             }
         }
