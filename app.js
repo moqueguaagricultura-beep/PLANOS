@@ -60,11 +60,40 @@ function refreshAllTextsScale() {
     
     document.querySelectorAll('.dxf-text-span').forEach(span => {
         const heightMeters = parseFloat(span.dataset.height) || 0.2;
+        const rot = parseFloat(span.dataset.rotation) || 0;
+        const isMText = span.dataset.ismtext === '1';
+        
         // Calculate px size: height / metersPerPixel
-        // We add a slight boost factor (1.2) because digital text often looks smaller than vector lines
         const pxSize = (heightMeters / metersPerPixel) * 1.1;
         span.style.fontSize = `${pxSize}px`;
+        
+        // Force rotation and origin persistence
+        span.style.transform = `rotate(${-rot}deg)`;
+        span.style.transformOrigin = isMText ? '0 0' : '0 100%';
     });
+}
+
+function getEntityRotation(entity) {
+    let rot = 0;
+    const isMText = entity.type === 'MTEXT';
+    
+    // Check all possible DXF property names for rotation
+    if (typeof entity.rotation === 'number') rot = entity.rotation;
+    else if (typeof entity.rotationAngle === 'number') rot = entity.rotationAngle;
+    else if (typeof entity.angle === 'number') rot = entity.angle;
+    
+    // MTEXT priority direction vector
+    if (isMText && entity.xAxisVector) {
+        const vRot = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+        if (Math.abs(rot) < 0.01 && Math.abs(vRot) > 0.01) rot = vRot;
+    }
+    
+    // Spec detection: MTEXT (code 50) is often in RADIANS, TEXT (code 50) is in DEGREES
+    if (isMText && Math.abs(rot) > 0.0001 && Math.abs(rot) < 6.283185) {
+        rot = rot * (180 / Math.PI);
+    }
+    
+    return rot;
 }
 
 const basemaps = {
@@ -930,26 +959,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         isText = true;
                         const textHeight = entity.textHeight || 0.2;
                         const isMText = entity.type === 'MTEXT';
-                        
-                        // --- Definitive Rotation Extraction ---
-                        let rotation = 0;
-
-                        if (isMText && entity.xAxisVector) {
-                            // Priority 1 for MTEXT: The direction vector (xAxisVector)
-                            rotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
-                        } else if (typeof entity.rotation === 'number') {
-                            // Priority 2: Standard rotation property
-                            rotation = entity.rotation;
-                            // DXF Spec Note: MTEXT rotation (code 50) is often in RADIANS in many versions
-                            // while TEXT rotation is always in DEGREES.
-                            if (isMText && Math.abs(rotation) > 0 && Math.abs(rotation) < 6.28) {
-                                rotation = rotation * (180 / Math.PI);
-                            }
-                        } else if (entity.rotationAngle !== undefined) {
-                            rotation = entity.rotationAngle;
-                        } else if (entity.angle !== undefined) {
-                            rotation = entity.angle;
-                        }
+                        const rotation = getEntityRotation(entity);
 
                         // Calculate initial size
                         const zoom = map.getZoom();
@@ -962,6 +972,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                 className: `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`,
                                 html: `<span class="dxf-text-span" 
                                              data-height="${textHeight}"
+                                             data-rotation="${rotation}"
+                                             data-ismtext="${isMText ? '1' : '0'}"
                                              style="color: ${featureColor}; 
                                                     font-family: 'Inter', sans-serif; 
                                                     font-weight: 600;
@@ -977,6 +989,17 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                             })
                         });
                         geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
+                        
+                        geom.bindPopup(`
+                            <div style="font-family: 'Inter', sans-serif;">
+                                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">Información de Texto</p>
+                                <p><b>Capa:</b> ${layerName}</p>
+                                <p><b>Texto:</b> ${textStr}</p>
+                                <p><b>Tipo:</b> ${entity.type}</p>
+                                <p><b>Altura:</b> ${textHeight.toFixed(2)}m</p>
+                                <p><b>Angulo:</b> ${rotation.toFixed(2)}°</p>
+                            </div>
+                        `);
                     }
                 }
             }
@@ -1188,6 +1211,8 @@ function refreshAllPlansStyling() {
                         className: cName,
                         html: `<span class="dxf-text-span" 
                                      data-height="${feat._textOptions.textHeight}"
+                                     data-rotation="${feat._textOptions.rotation}"
+                                     data-ismtext="${feat._textOptions.isMText ? '1' : '0'}"
                                      style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; 
                                             font-family: 'Inter', sans-serif; 
                                             font-weight: 600;
@@ -1195,7 +1220,7 @@ function refreshAllPlansStyling() {
                                             transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                             display: inline-block; 
                                             white-space: nowrap;
-                                            transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
+                                            transform-origin: ${feat._textOptions.isMText ? '0 0' : '0 100%'};">
                                     ${feat._textOptions.text}
                                </span>`,
                         iconSize: [0, 0],
@@ -1249,6 +1274,8 @@ function renderPlanAndLayersMap() {
                             className: cName,
                             html: `<span class="dxf-text-span" 
                                          data-height="${feat._textOptions.textHeight}"
+                                         data-rotation="${feat._textOptions.rotation}"
+                                         data-ismtext="${feat._textOptions.isMText ? '1' : '0'}"
                                          style="color: ${customCol}; 
                                                 font-family: 'Inter', sans-serif; 
                                                 font-weight: 600;
