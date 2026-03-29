@@ -409,24 +409,25 @@ input:checked + .slider:before {
        relative to the insertion point coordinate */
 }
 
-/* Base text shadow for light maps */
+/* Base text shadow for light maps (sharp 1px white outline) */
 .dxf-text-span {
     text-shadow: 
-        1px 1px 0px rgba(255,255,255,0.8), 
-       -1px -1px 0px rgba(255,255,255,0.8), 
-        1px -1px 0px rgba(255,255,255,0.8), 
-       -1px 1px 0px rgba(255,255,255,0.8);
+         1.5px 1.5px 0px #fff, 
+        -1.5px -1.5px 0px #fff, 
+         1.5px -1.5px 0px #fff, 
+        -1.5px  1.5px 0px #fff,
+         0px 0px 1px #fff;
     line-height: 1;
 }
 
-/* Enhanced shadow for satellite imagery */
+/* Sharp black outline for satellite imagery (No fuzzy halo) */
 .satellite-shadow .dxf-text-span {
     text-shadow: 
-        1px 1px 2px #000, 
-       -1px -1px 2px #000, 
-        1px -1px 2px #000, 
-       -1px 1px 2px #000,
-        0 0 5px rgba(0,0,0,0.5);
+         1.5px 1.5px 0px #000, 
+        -1.5px -1.5px 0px #000, 
+         1.5px -1.5px 0px #000, 
+        -1.5px  1.5px 0px #000,
+         0px 0px 2px rgba(0,0,0,0.8); /* Minimal glow for contrast, maximum sharpness */
 }
 
 /* Semantic Zoom Utility */
