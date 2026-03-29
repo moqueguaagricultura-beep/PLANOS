@@ -77,35 +77,27 @@ function getEntityRotation(entity) {
     let rot = 0;
     const isMText = entity.type === 'MTEXT';
     
-    // 1. Check direct numerical rotation (all possible synonyms)
-    const propKeys = ['rotation', 'rotationAngle', 'angle', 'ang', 'rot', 'r'];
-    for (const key of propKeys) {
-        if (typeof entity[key] === 'number') {
-            rot = entity[key];
-            if (Math.abs(rot) > 0.0001) break;
-        }
+    // 1. Check standard numerical rotation
+    // AutoCAD Code 50: Rotation angle. 
+    // For TEXT it's degrees. For MTEXT it's radians.
+    if (typeof entity.rotation === 'number') {
+        rot = entity.rotation;
+    } else if (typeof entity.rotationAngle === 'number') {
+        rot = entity.rotationAngle;
+    } else if (typeof entity.angle === 'number') {
+        rot = entity.angle;
     }
     
-    // 2. Check Direction Vectors (primary for MTEXT)
-    // Check xAxisVector, xAxis, direction, or dir
-    const vec = entity.xAxisVector || entity.xAxis || entity.direction || entity.dir;
-    if (vec && typeof vec.x === 'number' && typeof vec.y === 'number') {
+    // 2. MTEXT Direction Vector (Code 11, 21, 31)
+    // This is the most reliable way to orient MTEXT
+    const vec = entity.xAxisVector || entity.xAxis;
+    if (isMText && vec && typeof vec.x === 'number' && typeof vec.y === 'number') {
         const vRot = Math.atan2(vec.y, vec.x) * (180 / Math.PI);
-        // If the vector gives a non-zero rotation, it's usually the intended one
-        if (Math.abs(vRot) > 0.001) rot = vRot;
+        if (Math.abs(vRot) > 0.001) return vRot; // Return immediately if vector exists for MTEXT
     }
     
-    // 3. Coordinate-based rotation (for entities with multiple alignment points)
-    if (Math.abs(rot) < 0.001 && entity.startPoint && entity.endPoint) {
-        const dX = entity.endPoint.x - entity.startPoint.x;
-        const dY = entity.endPoint.y - entity.startPoint.y;
-        if (Math.abs(dX) > 0.001 || Math.abs(dY) > 0.001) {
-            rot = Math.atan2(dY, dX) * (180 / Math.PI);
-        }
-    }
-    
-    // Radians to Degrees detection (Strictly for MTEXT)
-    // If it's MTEXT and it's small (within 2PI), it's likely radians
+    // 3. Radians to Degrees conversion for MTEXT
+    // Only if it's MTEXT and the value looks like a small radian value
     if (isMText && Math.abs(rot) > 0.0001 && Math.abs(rot) < 6.283185) {
         rot = rot * (180 / Math.PI);
     }
