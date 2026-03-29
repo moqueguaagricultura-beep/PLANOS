@@ -933,21 +933,22 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         
                         // --- Definitive Rotation Extraction ---
                         let rotation = 0;
-                        if (typeof entity.rotation === 'number') {
+
+                        if (isMText && entity.xAxisVector) {
+                            // Priority 1 for MTEXT: The direction vector (xAxisVector)
+                            rotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+                        } else if (typeof entity.rotation === 'number') {
+                            // Priority 2: Standard rotation property
                             rotation = entity.rotation;
+                            // DXF Spec Note: MTEXT rotation (code 50) is often in RADIANS in many versions
+                            // while TEXT rotation is always in DEGREES.
+                            if (isMText && Math.abs(rotation) > 0 && Math.abs(rotation) < 6.28) {
+                                rotation = rotation * (180 / Math.PI);
+                            }
                         } else if (entity.rotationAngle !== undefined) {
                             rotation = entity.rotationAngle;
                         } else if (entity.angle !== undefined) {
                             rotation = entity.angle;
-                        }
-                        
-                        // MTEXT often defines rotation via a direction vector (xAxisVector)
-                        if (isMText && entity.xAxisVector) {
-                            const vectorRotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
-                            // If rotation is 0 but vector is angled, use vector
-                            if (Math.abs(rotation) < 0.01 && Math.abs(vectorRotation) > 0.01) {
-                                rotation = vectorRotation;
-                            }
                         }
 
                         // Calculate initial size
