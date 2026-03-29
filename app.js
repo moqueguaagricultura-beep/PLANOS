@@ -931,10 +931,23 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                         const textHeight = entity.textHeight || 0.2;
                         const isMText = entity.type === 'MTEXT';
                         
-                        // Robust Rotation: Check .rotation and fallback to xAxisVector for MTEXT
-                        let rotation = entity.rotation || 0;
-                        if (isMText && rotation === 0 && entity.xAxisVector) {
-                            rotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+                        // --- Definitive Rotation Extraction ---
+                        let rotation = 0;
+                        if (typeof entity.rotation === 'number') {
+                            rotation = entity.rotation;
+                        } else if (entity.rotationAngle !== undefined) {
+                            rotation = entity.rotationAngle;
+                        } else if (entity.angle !== undefined) {
+                            rotation = entity.angle;
+                        }
+                        
+                        // MTEXT often defines rotation via a direction vector (xAxisVector)
+                        if (isMText && entity.xAxisVector) {
+                            const vectorRotation = Math.atan2(entity.xAxisVector.y, entity.xAxisVector.x) * (180 / Math.PI);
+                            // If rotation is 0 but vector is angled, use vector
+                            if (Math.abs(rotation) < 0.01 && Math.abs(vectorRotation) > 0.01) {
+                                rotation = vectorRotation;
+                            }
                         }
 
                         // Calculate initial size
@@ -952,11 +965,10 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                                     font-family: 'Inter', sans-serif; 
                                                     font-weight: 600;
                                                     font-size: ${pxSize}px; 
-                                                    /* Use !important to prevent overrides during dynamic sizing */
                                                     transform: rotate(${-rotation}deg) !important; 
                                                     display: inline-block; 
                                                     white-space: nowrap;
-                                                    transform-origin: ${isMText ? 'top left' : 'bottom left'};">
+                                                    transform-origin: ${isMText ? '0 0' : '0 100%'};">
                                             ${textStr}
                                        </span>`,
                                 iconSize: [0, 0],
@@ -1243,7 +1255,7 @@ function renderPlanAndLayersMap() {
                                                 transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                                 display: inline-block; 
                                                 white-space: nowrap;
-                                                transform-origin: ${feat._textOptions.isMText ? 'top left' : 'bottom left'};">
+                                                transform-origin: ${feat._textOptions.isMText ? '0 0' : '0 100%'};">
                                         ${feat._textOptions.text}
                                    </span>`,
                             iconSize: [0, 0],
