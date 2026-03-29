@@ -90,10 +90,11 @@ function getEntityRotation(entity) {
     
     // 2. MTEXT Direction Vector (Code 11, 21, 31)
     // This is the most reliable way to orient MTEXT
-    const vec = entity.xAxisVector || entity.xAxis;
+    // Check xAxisVector, directionVector, or just xAxis
+    const vec = entity.xAxisVector || entity.directionVector || entity.xAxis;
     if (isMText && vec && typeof vec.x === 'number' && typeof vec.y === 'number') {
         const vRot = Math.atan2(vec.y, vec.x) * (180 / Math.PI);
-        if (Math.abs(vRot) > 0.001) return vRot; // Return immediately if vector exists for MTEXT
+        if (Math.abs(vRot) > 0.001) return vRot;
     }
     
     // 3. Radians to Degrees conversion for MTEXT
@@ -995,19 +996,14 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                 })
                             });
                             
-                            // Debug: Full object inspection
-                            let debugParams = "";
-                            Object.keys(entity).forEach(k => {
-                                if (typeof entity[k] === 'number') {
-                                    debugParams += `<br><b>${k}:</b> ${entity[k].toFixed(4)}`;
-                                } else if (typeof entity[k] === 'object' && entity[k] !== null) {
-                                    // Flatten vectors or simple objects for debug
-                                    debugParams += `<br><b>${k}:</b> ${JSON.stringify(entity[k])}`;
-                                }
-                            });
-
                             geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
-                            geom.bindPopup(`<div style="font-family: 'Inter', sans-serif; max-height:300px; overflow-y:auto; font-size:12px;"><p style="font-weight:700; color:var(--primary);">Info Texto</p><b>Texto:</b> ${textStr}<br><b>Angulo Final:</b> ${rotation.toFixed(2)}°<p style="color:#6b7280; border-top:1px solid #eee; padding-top:4px;"><b>DEBUG RAW:</b>${debugParams}</p></div>`);
+                            geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary); margin-bottom:8px;">Información de Texto</p>
+                                <p><b>Capa:</b> ${layerName}</p>
+                                <p><b>Texto:</b> ${textStr}</p>
+                                <p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p>
+                                <p><b>Altura:</b> ${textHeight.toFixed(2)}m</p>
+                                <p><b>Ángulo:</b> ${rotation.toFixed(2)}°</p>
+                            </div>`);
                         }
                 }
             }
