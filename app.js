@@ -33,22 +33,57 @@ async function processFileHandle(fileHandle) {
 // 1. Definition of CRS WGS84 UTM Zone 19S (EPSG:32719)
 proj4.defs("EPSG:32719", "+proj=utm +zone=19 +south +datum=WGS84 +units=m +no_defs");
 
-// 2. Initialize Map & Basemaps (Centered on Moquegua, Peru)
-// Set maxZoom astronomically high so users can zoom deeply into small lots
-const map = L.map('map', { zoomControl: false, maxZoom: 26 }).setView([-17.195, -70.936], 9);
+// 2. Initialize Map & Basemaps (Centered on Moquegua, Peru by default)
+// Persistence state for viewport and basemap
+function loadMapState() {
+    try {
+        const saved = localStorage.getItem('map_state');
+        if (saved) return JSON.parse(saved);
+    } catch (e) { console.error("Error loading map state:", e); }
+    return { center: [-17.195, -70.936], zoom: 9, basemap: 'light' };
+}
+
+function saveMapState() {
+    const state = {
+        center: [map.getCenter().lat, map.getCenter().lng],
+        zoom: map.getZoom(),
+        basemap: currentBasemap
+    };
+    localStorage.setItem('map_state', JSON.stringify(state));
+}
+
+const initialState = loadMapState();
+// Map zoom limit set to 22 (highest practical for agriculture lots scaling)
+const map = L.map('map', { 
+    zoomControl: false, 
+    maxZoom: 22 // El mapa sólo permite acercarse hasta nivel 22
+}).setView(initialState.center, initialState.zoom);
 map.attributionControl.setPrefix('EDWIN DIAZ CAMACHO');
 
-// Semantic Zooming & Dynamic Text Scaling
-map.on('zoomend', function () {
+// Prevención de Pantalla Blanca y Escalado Continuo
+window.addEventListener('resize', () => map.invalidateSize());
+setTimeout(() => map.invalidateSize(), 300);
+setTimeout(() => map.invalidateSize(), 1500);
+
+// Evento de fin de zoom (refresco de UI y estado)
+map.on('zoomend', () => {
+    saveMapState();
+    
     // 1. Semantic Hiding (prevents clutter)
     if (map.getZoom() < 17) {
         document.body.classList.add('hide-dxf-texts');
     } else {
         document.body.classList.remove('hide-dxf-texts');
     }
-
-    // 2. Dynamic Scaling of DXF Text sizes to maintain proportions relative to map
     refreshAllTextsScale();
+});
+
+// Master Guard for Exclusive Measurement Mode: 
+// If any popup (Text info, Area info, etc.) tries to open while measuring, close it instantly.
+map.on('popupopen', () => {
+    if (typeof isMeasuring !== 'undefined' && isMeasuring) {
+        map.closePopup();
+    }
 });
 if (map.getZoom() < 17) document.body.classList.add('hide-dxf-texts');
 
@@ -58,20 +93,11 @@ function refreshAllTextsScale() {
     // Meters per pixel approximation for current zoom
     const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
     
-    document.querySelectorAll('.dxf-text-span').forEach(span => {
-        const heightMeters = parseFloat(span.dataset.height) || 0.2;
-        const rot = parseFloat(span.dataset.rotation) || 0;
-        const isMText = span.dataset.ismtext === '1';
-        
-        // Calculate px size: height / metersPerPixel
-        const pxSize = (heightMeters / metersPerPixel) * 1.1;
-        span.style.fontSize = `${pxSize}px`;
-        
-        // Force rotation and origin persistence
-        span.style.transform = `rotate(${-rot}deg)`;
-        span.style.transformOrigin = isMText ? '0 0' : '0 100%';
-    });
+    // Asigna una variable CSS global para re-escalar textos usando hardware en vez de iterar DOM
+    document.documentElement.style.setProperty('--m-per-px', metersPerPixel);
 }
+// Init global var
+refreshAllTextsScale();
 
 function getEntityRotation(entity) {
     let rot = 0;
@@ -109,21 +135,29 @@ function getEntityRotation(entity) {
 const basemaps = {
     light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap &copy; CARTO',
-        maxZoom: 26, maxNativeZoom: 18
+        maxZoom: 30, maxNativeZoom: 18,
+        updateWhenIdle: false
     }),
     satellite: L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
         attribution: '&copy; Google Maps',
-        // Google Satellite has much better detail (zoom 20+) in Moquegua
-        maxZoom: 26, maxNativeZoom: 20
+        // Escalado forzado a nivel 19 para máxima estabilidad
+        maxZoom: 30, maxNativeZoom: 19,
+        updateWhenIdle: false
     }),
-    history2020: L.tileLayer('https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/29260/{z}/{y}/{x}', {
-        attribution: 'Esri Wayback (Dec 2020)',
-        maxZoom: 26,
-        maxNativeZoom: 17
+    history2020: L.tileLayer('https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/1049/{z}/{y}/{x}', {
+        attribution: 'Esri Wayback (Jan 2021 HD)',
+        // Escalado forzado a nivel 17 para equilibrar detalle y evitar pérdida de imagen en zonas rurales
+        maxZoom: 30, maxNativeZoom: 17,
+        updateWhenIdle: false
     })
 };
-let currentBasemap = 'light';
+let currentBasemap = initialState.basemap;
 basemaps[currentBasemap].addTo(map);
+// Update UI states initially
+setTimeout(() => {
+    if (typeof btnBasemap !== 'undefined') btnBasemap.classList.toggle('active', currentBasemap === 'satellite');
+    if (typeof btnBasemap2020 !== 'undefined') btnBasemap2020.classList.toggle('active', currentBasemap === 'history2020');
+}, 100);
 
 // AutoCAD Extended Color mapping (Standard 255 ACI Palette)
 const ACI_COLORS = [
@@ -276,7 +310,7 @@ async function loadPlansFromDB() {
                 }
             });
 
-            if (plansWithBounds > 0) {
+            if (plansWithBounds > 0 && !localStorage.getItem('map_state')) {
                 map.fitBounds(allBounds, { padding: [50, 50] });
             }
 
@@ -428,8 +462,11 @@ function setBasemap(name) {
     currentBasemap = name;
 
     // Update UI active states
-    btnBasemap.classList.toggle('active', name === 'satellite');
-    btnBasemap2020.classList.toggle('active', name === 'history2020');
+    if (typeof btnBasemap !== 'undefined') btnBasemap.classList.toggle('active', name === 'satellite');
+    if (typeof btnBasemap2020 !== 'undefined') btnBasemap2020.classList.toggle('active', name === 'history2020');
+    
+    saveMapState();
+    setTimeout(() => map.invalidateSize(), 50); // Reparar visual inmediatamente
 }
 
 btnBasemap.addEventListener('click', () => {
@@ -457,6 +494,7 @@ btnMeasure.addEventListener('click', () => {
     } else {
         openUIComponent(() => {
             closeAllUI(false, true); // Clear any other open state first
+            map.closePopup(); // Ensure all area popups are closed before measuring
             isMeasuring = true; 
             btnMeasure.classList.add('active');
             map.getContainer().style.cursor = 'crosshair';
@@ -474,6 +512,7 @@ function clearMeasurement() {
 }
 
 function addMeasurementPoint(latlng) {
+    if (isMeasuring) map.closePopup(); // Double redundancy to clear screen on point click
     measurePoints.push(latlng);
 
     const marker = L.circleMarker(latlng, { radius: 5, color: '#ef4444', fillColor: '#fff', fillOpacity: 1, weight: 2 }).addTo(measureLayer);
@@ -487,9 +526,9 @@ function addMeasurementPoint(latlng) {
         for (let i = 0; i < measurePoints.length - 1; i++) {
             totalDist += measurePoints[i].distanceTo(measurePoints[i + 1]);
         }
-        marker.bindTooltip(`${totalDist.toFixed(2)} m`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
+        marker.bindTooltip(`${totalDist.toFixed(2)} m`, { permanent: true, direction: 'right', className: 'measure-tooltip', offset: [15, 0] }).openTooltip();
     } else {
-        marker.bindTooltip(`Inicio`, { permanent: true, direction: 'right', className: 'measure-tooltip' }).openTooltip();
+        marker.bindTooltip(`Inicio`, { permanent: true, direction: 'right', className: 'measure-tooltip', offset: [15, 0] }).openTooltip();
     }
 }
 
@@ -620,6 +659,22 @@ function calculatePlanarArea(vertices) {
         area += (vertices[j].x + vertices[i].x) * (vertices[j].y - vertices[i].y);
     }
     return Math.abs(area / 2);
+}
+
+function calculatePlanarLength(vertices, isClosed = false) {
+    if (!vertices || vertices.length < 2) return 0;
+    let length = 0;
+    for (let i = 0; i < vertices.length - 1; i++) {
+        const dxi = vertices[i + 1].x - vertices[i].x;
+        const dyi = vertices[i + 1].y - vertices[i].y;
+        length += Math.sqrt(dxi * dxi + dyi * dyi);
+    }
+    if (isClosed && vertices.length > 2) {
+        const dxl = vertices[vertices.length - 1].x - vertices[0].x;
+        const dyl = vertices[vertices.length - 1].y - vertices[0].y;
+        length += Math.sqrt(dxl * dxl + dyl * dyl);
+    }
+    return length;
 }
 
 // 5. Plan and Layer Management
@@ -899,15 +954,29 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
         }
 
         if (entity.type === 'LINE') {
-            const p1xy = transformXy(entity.vertices[0].x, entity.vertices[0].y);
-            const p2xy = transformXy(entity.vertices[1].x, entity.vertices[1].y);
+            const v1 = (entity.vertices && entity.vertices[0]) || entity.startPoint || entity.start || {x:0, y:0};
+            const v2 = (entity.vertices && entity.vertices[1]) || entity.endPoint || entity.end || {x:0, y:0};
+            const p1xy = transformXy(v1.x, v1.y);
+            const p2xy = transformXy(v2.x, v2.y);
             const p1 = convertPoint(p1xy.x, p1xy.y);
             const p2 = convertPoint(p2xy.x, p2xy.y);
             geom = L.polyline([p1, p2]);
+            const lineLen = Math.sqrt(Math.pow(p2xy.x - p1xy.x, 2) + Math.pow(p2xy.y - p1xy.y, 2));
+            geom.bindPopup(`<div style="font-family:sans-serif;"><p><b>CAPA: ${layerName}</b></p><p>Línea</p><p><b>Longitud:</b> ${lineLen.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</p></div>`);
+
+            // Ensure consistent behavior with polygons when measuring
+            geom.on('click', (e) => {
+                if (isMeasuring) {
+                    L.DomEvent.stopPropagation(e);
+                    addMeasurementPoint(e.latlng);
+                }
+            });
         }
         else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+            const utmPoints = [];
             const points = entity.vertices.map(v => {
                 const tr = transformXy(v.x, v.y);
+                utmPoints.push(tr);
                 return convertPoint(tr.x, tr.y);
             });
             let isClosedPoly = entity.shape || entity.closed;
@@ -926,15 +995,46 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 geom = L.polyline(points);
             }
 
-            if (isPolygon) {
-                const areaM2 = calculatePlanarArea(entity.vertices) * (parentTransform?.scaleX || 1) * (parentTransform?.scaleY || 1);
-                if (areaM2 > 0) {
-                    const areaHa = areaM2 / 10000;
-                    geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Polígono</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha</span></div>`);
-                    geom.on('popupopen', function () { this.setStyle({ fillOpacity: 0.3 }); });
-                    geom.on('popupclose', function () { this.setStyle({ fillOpacity: 0 }); });
-                }
+            // --- Unified Popup & INTERACTION Logic for all Polylines (Open or Closed) ---
+            const areaM2 = calculatePlanarArea(utmPoints);
+            const perimeter = calculatePlanarLength(utmPoints, isClosedPoly);
+            const areaHa = areaM2 / 10000;
+
+            let popupContent = `<div style="text-align:center; min-width:140px; font-family:sans-serif;"><p><b>CAPA: ${layerName}</b></p>`;
+            if (isPolygon && areaM2 > 0) {
+                popupContent += `<b>Área del Polígono</b><br><b style="color:#2563eb; font-size:1.1em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="color:#6b7280;">${areaHa.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha</span><br><span style="font-size:0.9em; color:#374151;">Perímetro: ${perimeter.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</span>`;
+            } else {
+                popupContent += `<b>Línea / Polilínea</b><br><b>Longitud:</b> ${perimeter.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m`;
             }
+            popupContent += `</div>`;
+
+            geom.bindPopup(popupContent);
+
+            // Selection highlights
+            geom.on('popupopen', function () {
+                if (typeof isMeasuring !== 'undefined' && isMeasuring) return;
+                if (isPolygon) {
+                    this.setStyle({ fillOpacity: 0.3 });
+                } else {
+                    this.setStyle({ weight: 4, opacity: 1 }); // Highlight for lines
+                }
+            });
+
+            geom.on('popupclose', function () {
+                if (isPolygon) {
+                    this.setStyle({ fillOpacity: 0 });
+                } else {
+                    this.setStyle({ weight: 1.5, opacity: 0.8 }); // Restore lines
+                }
+            });
+
+            // Exclusive measurement mode listener
+            geom.on('click', (e) => {
+                if (isMeasuring) {
+                    L.DomEvent.stopPropagation(e);
+                    addMeasurementPoint(e.latlng);
+                }
+            });
         }
         else if (entity.type === 'CIRCLE') {
             const tr = transformXy(entity.center.x, entity.center.y);
@@ -943,9 +1043,21 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             geom = L.circle(center, { radius: radius, fillOpacity: 0 });
             isPolygon = true;
             const areaM2 = Math.PI * Math.pow(radius, 2);
-            geom.bindPopup(`<div style="text-align:center; min-width:120px; font-family:sans-serif;"><b>Área del Círculo</b><br><b style="color:#2563eb; font-size:1.2em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b></div>`);
-            geom.on('popupopen', function () { this.setStyle({ fillOpacity: 0.3 }); });
+            const circumference = 2 * Math.PI * radius;
+            geom.bindPopup(`<div style="text-align:center; min-width:140px; font-family:sans-serif;"><p><b>CAPA: ${layerName}</b></p><b>Área del Círculo</b><br><b style="color:#2563eb; font-size:1.1em;">${areaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="font-size:0.9em; color:#374151;">Perímetro: ${circumference.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</span></div>`);
+            geom.on('popupopen', function () {
+                if (typeof isMeasuring !== 'undefined' && isMeasuring) return;
+                this.setStyle({ fillOpacity: 0.3 }); 
+            });
             geom.on('popupclose', function () { this.setStyle({ fillOpacity: 0 }); });
+
+            // Add click interceptor for exclusive measurement mode
+            geom.on('click', (e) => {
+                if (isMeasuring) {
+                    L.DomEvent.stopPropagation(e);
+                    addMeasurementPoint(e.latlng);
+                }
+            });
         }
         else if (entity.type === 'POINT') {
             const ptX = entity.position?.x ?? entity.x;
@@ -954,6 +1066,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 const tr = transformXy(ptX, ptY);
                 const pt = convertPoint(tr.x, tr.y);
                 geom = L.circleMarker(pt, { radius: 3, weight: 1, opacity: 1, fill: true, fillOpacity: 0.8 });
+                geom.bindPopup(`<div style="font-family:sans-serif;"><p><b>CAPA: ${layerName}</b></p><b>Punto</b><br><b>E:</b> ${tr.x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br><b>N:</b> ${tr.y.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>`);
             }
         }
         else if (entity.type === 'TEXT' || entity.type === 'MTEXT') {
@@ -975,10 +1088,6 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                             const textHeight = heightVal * (parentTransform?.scaleY || 1);
                             const isMText = entity.type === 'MTEXT';
                             const rotation = getEntityRotation(entity) + (parentTransform?.rotation || 0);
-                            const zoom = map.getZoom();
-                            const lat = pt[0];
-                            const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
-                            const pxSize = (textHeight / metersPerPixel) * 1.1;
 
                             geom = L.marker(pt, {
                                 icon: L.divIcon({
@@ -987,7 +1096,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                                                  data-height="${textHeight}"
                                                  data-rotation="${rotation}"
                                                  data-ismtext="${isMText ? '1' : '0'}"
-                                                 style="color: ${featureColor}; font-family: 'Inter', sans-serif; font-weight: 600; font-size: ${pxSize}px; 
+                                                 style="color: ${featureColor}; font-family: 'Inter', sans-serif; font-weight: 600; font-size: calc((${textHeight} / var(--m-per-px)) * 1.1px); 
                                                         transform: rotate(${-rotation}deg) !important; display: inline-block; white-space: nowrap; 
                                                         transform-origin: ${isMText ? '0 0' : '0 100%'};">
                                                 ${textStr}
@@ -997,8 +1106,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                             });
                             
                             geom._textOptions = { text: textStr, colorNumber: entityColorNum, textHeight: textHeight, rotation: rotation, isMText: isMText };
-                            geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary); margin-bottom:8px;">Información de Texto</p>
-                                <p><b>Capa:</b> ${layerName}</p>
+                            geom.bindPopup(`<div style="font-family: 'Inter', sans-serif;"><p style="font-weight:700; color:var(--primary); margin-bottom:8px;">CAPA: ${layerName}</p>
+                                <p style="font-size:0.9em; margin-bottom:8px;">Información de Texto</p>
                                 <p><b>Texto:</b> ${textStr}</p>
                                 <p><b>Tipo:</b> ${entity.type}${parentTransform ? ' (Bloque)' : ''}</p>
                                 <p><b>Altura:</b> ${textHeight.toFixed(2)}m</p>
@@ -1091,6 +1200,12 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 polygon._isPolygon = true;
                 polygon._isHatch = true;
                 polygon._featureColor = hColor;
+
+                // Add popup for Hatch with Area and Layer
+                const hAreaM2 = calculatePlanarArea(loop.polyline);
+                const hAreaHa = hAreaM2 / 10000;
+                polygon.bindPopup(`<div style="text-align:center; min-width:140px; font-family:sans-serif;"><p><b>CAPA: ${hLayerName}</b></p><b>Área de Sombreado (HATCH)</b><br><b style="color:#2563eb; font-size:1.1em;">${hAreaM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m²</b><br><span style="color:#6b7280;">${hAreaHa.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ha</span></div>`);
+
                 polygon.on('click', (e) => {
                     if (isMeasuring) {
                         L.DomEvent.stopPropagation(e);
@@ -1098,6 +1213,7 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                     }
                 });
                 activeLayersData[hLayerName].features.push(polygon);
+                group.addLayer(polygon); // Add HATCH to the map group!
             });
         });
     }
@@ -1135,10 +1251,6 @@ function refreshAllPlansStyling() {
                     const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
                     const customCol = lData.customColor || getEntityColor(feat._textOptions.colorNumber);
                     
-                    const zoom = map.getZoom();
-                    const lat = feat.getLatLng().lat;
-                    const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
-                    const pxSize = (feat._textOptions.textHeight / metersPerPixel) * 1.1;
 
                     feat.setIcon(L.divIcon({
                         className: cName,
@@ -1149,7 +1261,7 @@ function refreshAllPlansStyling() {
                                      style="color: ${customCol}; opacity: ${lData.visible ? 1 : 0}; 
                                             font-family: 'Inter', sans-serif; 
                                             font-weight: 600;
-                                            font-size: ${pxSize}px; 
+                                            font-size: calc((${feat._textOptions.textHeight} / var(--m-per-px)) * 1.1px); 
                                             transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                             display: inline-block; 
                                             white-space: nowrap;
@@ -1198,10 +1310,6 @@ function renderPlanAndLayersMap() {
                         const customCol = activeLayersRegistry[layerName].customColor || getEntityColor(feat._textOptions.colorNumber);
                         const cName = `dxf-text ${currentBasemap === 'satellite' ? 'satellite-shadow' : ''}`;
                         
-                        const zoom = map.getZoom();
-                        const lat = feat.getLatLng().lat;
-                        const metersPerPixel = (40075016.686 * Math.abs(Math.cos(lat * Math.PI / 180))) / Math.pow(2, zoom + 8);
-                        const pxSize = (feat._textOptions.textHeight / metersPerPixel) * 1.1;
 
                         feat.setIcon(L.divIcon({
                             className: cName,
@@ -1212,7 +1320,7 @@ function renderPlanAndLayersMap() {
                                          style="color: ${customCol}; 
                                                 font-family: 'Inter', sans-serif; 
                                                 font-weight: 600;
-                                                font-size: ${pxSize}px; 
+                                                font-size: calc((${feat._textOptions.textHeight} / var(--m-per-px)) * 1.1px); 
                                                 transform: rotate(${-feat._textOptions.rotation}deg) !important; 
                                                 display: inline-block; 
                                                 white-space: nowrap;
@@ -1454,9 +1562,12 @@ function renderNote(note) {
     const marker = L.marker(note.latlng, {
         icon: L.divIcon({
             className: 'note-marker',
-            html: '📌',
-            iconSize: [24, 24],
-            iconAnchor: [12, 24]
+            html: `<svg viewBox="0 0 24 24" width="24" height="24" stroke="#ef4444" stroke-width="2" fill="rgba(239, 68, 68, 0.2)" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                        <circle cx="12" cy="10" r="3"></circle>
+                    </svg>`,
+            iconSize: [30, 30],
+            iconAnchor: [15, 30]
         })
     }).addTo(map);
 

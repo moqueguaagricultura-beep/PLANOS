@@ -1,5 +1,5 @@
-const CACHE_NAME = 'planos-dxf-edc-v8';
-const TILE_CACHE_NAME = 'planos-tiles-v1';
+const CACHE_NAME = 'planos-dxf-edc-v10';
+const TILE_CACHE_NAME = 'planos-tiles-v3';
 
 const ASSETS = [
   './',
@@ -20,7 +20,11 @@ const ASSETS = [
 const TILE_URLS = [
   'arcgisonline.com',
   'maptiles.arcgis.com',
-  'cartocdn.com'
+  'cartocdn.com',
+  'mt0.google.com',
+  'mt1.google.com',
+  'mt2.google.com',
+  'mt3.google.com'
 ];
 
 self.addEventListener('install', (e) => {
