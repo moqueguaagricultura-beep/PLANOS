@@ -65,6 +65,8 @@ window.addEventListener('resize', () => map.invalidateSize());
 setTimeout(() => map.invalidateSize(), 300);
 setTimeout(() => map.invalidateSize(), 1500);
 
+map.on('moveend', () => saveMapState());
+
 // Evento de fin de zoom (refresco de UI y estado)
 map.on('zoomend', () => {
     saveMapState();
@@ -271,8 +273,14 @@ async function updatePlanConfigInDB(planId, layerName, config) {
     request.onsuccess = () => {
         const data = request.result;
         if (data) {
-            if (!data.layersConfig[layerName]) data.layersConfig[layerName] = {};
-            Object.assign(data.layersConfig[layerName], config);
+            if (layerName === null) {
+                // Actualiza propiedades de nivel superior del plano (ej: visible)
+                Object.assign(data, config);
+            } else {
+                // Actualiza propiedades de una capa específica
+                if (!data.layersConfig[layerName]) data.layersConfig[layerName] = {};
+                Object.assign(data.layersConfig[layerName], config);
+            }
             store.put(data);
         }
     };
@@ -908,10 +916,24 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
 
         if (!activeLayersData[layerName]) {
             const lConfig = savedConfig?.layersConfig?.[layerName];
+            // Si es un plan nuevo pero la capa ya existe en el registro global, hereda su estado
+            const globalLayer = activeLayersRegistry[layerName];
+            
+            let isVisible = true;
+            let cColor = null;
+            
+            if (lConfig !== undefined) {
+                isVisible = lConfig.visible;
+                cColor = lConfig.customColor;
+            } else if (globalLayer !== undefined) {
+                isVisible = globalLayer.visible;
+                cColor = globalLayer.customColor;
+            }
+
             activeLayersData[layerName] = {
                 color: getEntityColor(tableLayerColorNum),
-                customColor: lConfig?.customColor || null,
-                visible: lConfig !== undefined ? lConfig.visible : true,
+                customColor: cColor,
+                visible: isVisible,
                 features: []
             };
         }
@@ -1171,6 +1193,19 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
             // Ensure the layer exists in activeLayersData
             if (!activeLayersData[hLayerName]) {
                 const lConfig = savedConfig?.layersConfig?.[hLayerName];
+                const globalLayer = activeLayersRegistry[hLayerName];
+                
+                let isVisible = true;
+                let cColor = null;
+                
+                if (lConfig !== undefined) {
+                    isVisible = lConfig.visible;
+                    cColor = lConfig.customColor;
+                } else if (globalLayer !== undefined) {
+                    isVisible = globalLayer.visible;
+                    cColor = globalLayer.customColor;
+                }
+
                 let tableColorNum = 7;
                 if (tableLayers && (tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()])) {
                     const lData = tableLayers[hLayerName] || tableLayers[hLayerName.toUpperCase()];
@@ -1180,8 +1215,8 @@ function processDxf(fileName, dxf, existingId = null, savedConfig = null, rawDxf
                 }
                 activeLayersData[hLayerName] = {
                     color: getEntityColor(tableColorNum),
-                    customColor: lConfig?.customColor || null,
-                    visible: lConfig !== undefined ? lConfig.visible : true,
+                    customColor: cColor,
+                    visible: isVisible,
                     features: []
                 };
             }
