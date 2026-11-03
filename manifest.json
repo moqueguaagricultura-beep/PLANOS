@@ -1,9 +1,12 @@
 {
+  "id": "planos-dxf-edc",
   "name": "PLANOS DXF_EDC",
   "short_name": "DXF_EDC",
   "description": "Visor de Planos AutoCAD DXF con GPS",
-  "start_url": "index.html",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "minimal-ui"],
   "background_color": "#f3f4f6",
   "theme_color": "#3b82f6",
   "icons": [
@@ -11,24 +14,48 @@
       "src": "icon.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "icon.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Cargar DXF",
+      "short_name": "Cargar",
+      "description": "Cargar un nuevo archivo DXF",
+      "url": "./index.html?action=upload",
+      "icons": [{ "src": "icon.png", "sizes": "192x192" }]
     }
   ],
   "categories": ["productivity", "utilities", "maps"],
   "orientation": "any",
+  "prefer_related_applications": false,
   "file_handlers": [
     {
       "action": "./index.html",
       "accept": {
         "application/dxf": [".dxf"],
+        "application/x-dxf": [".dxf"],
         "image/vnd.dxf": [".dxf"],
-        "application/x-dxf": [".dxf"]
+        "image/x-dxf": [".dxf"],
+        "application/octet-stream": [".dxf"]
       }
     }
   ]

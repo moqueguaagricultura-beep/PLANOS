@@ -1,4 +1,4 @@
-const CACHE_NAME = 'planos-dxf-edc-v10';
+const CACHE_NAME = 'planos-dxf-edc-v11';
 const TILE_CACHE_NAME = 'planos-tiles-v3';
 
 const ASSETS = [
@@ -65,7 +65,7 @@ self.addEventListener('fetch', (e) => {
 
   // Strategy for Assets & Rest: Cache with Network Fallback
   e.respondWith(
-    caches.match(e.request).then((res) => {
+    caches.match(e.request, { ignoreSearch: true }).then((res) => {
       return res || fetch(e.request);
     })
   );

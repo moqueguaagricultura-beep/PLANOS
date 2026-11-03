@@ -12,8 +12,12 @@ window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     // Stash the event so it can be triggered later.
     deferredPrompt = e;
-    // Update UI notify the user they can install the PWA
-    if (btnInstall) btnInstall.classList.remove('hidden');
+    
+    // Solo mostrar el botón si NO estamos ya en modo instalada
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    if (btnInstall && !isStandalone) {
+        btnInstall.classList.remove('hidden');
+    }
 });
 
 if (btnInstall) {
@@ -36,7 +40,7 @@ window.addEventListener('appinstalled', (evt) => {
     if (btnInstall) btnInstall.classList.add('hidden');
 });
 
-// 1.1 Handle files opened from the system (Open with...)
+// 1.1 Handle files opened from the system (Open with...) and Shortcuts
 if ('launchQueue' in window) {
     launchQueue.setConsumer((launchParams) => {
         if (launchParams.files && launchParams.files.length > 0) {
@@ -47,20 +51,63 @@ if ('launchQueue' in window) {
     });
 }
 
-async function processFileHandle(fileHandle) {
-    const file = await fileHandle.getFile();
-    const reader = new FileReader();
-    reader.onload = (event) => {
+// Function to load and process raw DXF text from native apps (Android Intent / iOS) or LaunchQueue
+function loadDxfString(rawText, fileName = "Plano.dxf") {
+    try {
+        const parser = new window.DxfParser();
+        const dxf = parser.parseSync(rawText);
+        processDxf(fileName, dxf, null, null, rawText);
+    } catch (error) {
+        console.error("Error parsing DXF string:", error);
+        showAlert("Error al abrir el plano DXF: " + (error.message || "archivo no válido o dañado."));
+    }
+}
+window.loadDxfFromNative = loadDxfString;
+
+// Check if Android Native bridge has any pending DXF passed from Intent (WhatsApp / File Manager)
+window.checkNativeDxf = function() {
+    if (window.AndroidBridge && typeof window.AndroidBridge.hasPendingDxf === 'function') {
         try {
-            const parser = new window.DxfParser();
-            const dxf = parser.parseSync(event.target.result);
-            processDxf(file.name, dxf, null, null, event.target.result);
-        } catch (error) {
-            console.error("Error parsing DXF from Launch:", error);
-            showAlert("Error al abrir el archivo desde el sistema.");
+            if (window.AndroidBridge.hasPendingDxf()) {
+                const fileName = window.AndroidBridge.getDxfFileName() || "Plano_WhatsApp.dxf";
+                const content = window.AndroidBridge.getDxfData();
+                window.AndroidBridge.clearPendingDxf();
+                if (content && content.length > 0) {
+                    loadDxfString(content, fileName);
+                }
+            }
+        } catch (e) {
+            console.error("Error checking AndroidBridge DXF:", e);
         }
-    };
-    reader.readAsText(file);
+    }
+};
+
+// Handle Shortcut actions, URL parameters, or Native Intents
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('action') === 'upload') {
+        setTimeout(() => {
+            if (dxfUpload) dxfUpload.click();
+        }, 1000);
+    }
+    // Check if launched by Android Intent
+    setTimeout(() => {
+        if (window.checkNativeDxf) window.checkNativeDxf();
+    }, 500);
+});
+
+async function processFileHandle(fileHandle) {
+    try {
+        const file = await fileHandle.getFile();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            loadDxfString(event.target.result, file.name);
+        };
+        reader.readAsText(file);
+    } catch (error) {
+        console.error("Error reading file handle:", error);
+        showAlert("Error al abrir el archivo desde el sistema.");
+    }
 }
 
 // 1. Definition of CRS WGS84 UTM Zone 19S (EPSG:32719)

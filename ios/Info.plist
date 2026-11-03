@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>es</string>
+    <key>CFBundleDisplayName</key>
+    <string>PLANOS DXF_EDC</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.edc.planosdxf</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    
+    <!-- Permiso de GPS para ubicación en el mapa -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Se requiere tu ubicación para mostrar tu posición GPS en el plano de obra.</string>
+
+    <!-- Permitir abrir documentos en el lugar -->
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+
+    <!-- Registro de tipos de documento soportados para "Abrir con..." desde WhatsApp / Archivos -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>AutoCAD DXF Drawing</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.autodesk.dxf</string>
+                <string>public.dxf</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- Declaración de Tipos Importados (UTImportedTypeDeclarations) con todos los MIME Types CAD -->
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.autodesk.dxf</string>
+            <key>UTTypeDescription</key>
+            <string>AutoCAD DXF Document</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.text</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>dxf</string>
+                    <string>DXF</string>
+                </array>
+                <key>public.mime-type</key>
+                <array>
+                    <string>application/dxf</string>
+                    <string>application/x-dxf</string>
+                    <string>image/vnd.dxf</string>
+                    <string>image/x-dxf</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>
